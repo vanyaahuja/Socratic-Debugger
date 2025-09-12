@@ -47,6 +47,7 @@ python -m huggingface_hub login
 ```
 **4. Run the evaluation script:**
 You can specify which model to evaluate using the `--model_id` flag. If you don't provide the flag, it will default to running with Mistral.
+
 **To run with Mistral (the default):**
 ```bash
 python evaluation_script.py
@@ -55,7 +56,6 @@ python evaluation_script.py
 ```bash
 python evaluation_script.py --model_id "codellama/CodeLlama-7b-instruct-hf"
 ```
-
 
 
 
