@@ -2,12 +2,22 @@ import torch
 from transformers import pipeline
 import logging
 import textwrap
+import argparse
+
+parser = argparse.ArgumentParser(description="Evaluate a Hugging Face model for Socratic tutoring.")
+parser.add_argument(
+    '--model_id',
+    type=str,
+    default="mistralai/Mistral-7B-Instruct-v0.2",
+    help="The Hugging Face model ID to evaluate."
+)
+args = parser.parse_args()
+model_id = args.model_id
 
 # logging to suppress informational messages
 logging.basicConfig(level=logging.WARNING)
 
-model_id = "mistralai/Mistral-7B-Instruct-v0.3"
-print(f"Loading model: {model_id}")
+print(f"Loading model: {model_id}") 
 
 try:
     generator = pipeline(
