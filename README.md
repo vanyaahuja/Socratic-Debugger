@@ -27,6 +27,35 @@ In conclusion, LLMs show potential to act as a Socratic Tutor but they require f
 2) Liu, Y., Li, C., Zhang, T., Wang, M., Zhu, Q., Li, J., & Huang, H. (2025). Discerning Minds or Generic Tutors? Evaluating Instructional Guidance Capabilities in Socratic LLMs. arXiv preprint arXiv:2508.06583. <br>
 3) Karamuk, K. (2025). The Automation Trap: Unpacking the Consequences of Over-Reliance on AI in Education and Its Hidden Costs. In AI in Education.
 
+## APPENDIX: EXPERIMENTAL VALIDATION & REPRODUCIBILITY
+### How to Run This Evaluation
+This project was run using Python 3.10+.
+
+**1. Clone the repository:**
+```bash
+git clone https://github.com/your-username/your-repo-name.git
+cd your-repo-name
+```
+**2. Install dependencies:**
+```bash
+pip install -r requirements.txt
+```
+**3. Log in to Hugging Face:**
+You will need a Hugging Face account and an access token with `write` permissions.
+```bash
+python -m huggingface_hub login
+```
+**4. Run the evaluation script:**
+You can specify which model to evaluate using the `--model_id` flag. If you don't provide the flag, it will default to running with Mistral.
+**To run with Mistral (the default):**
+```bash
+python evaluation_script.py
+```
+**To run with Code Llama:**
+```bash
+python evaluation_script.py --model_id "codellama/CodeLlama-7b-instruct-hf"
+```
+
 
 
 
