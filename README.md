@@ -68,17 +68,5 @@ Automated: `cd backend && python -m pytest tests -q` (39 tests; the LLM is mocke
 - **Untrusted input.** Code, statement, feedback and chat text are wrapped in `<untrusted_*>` tags (closing-tag injection is stripped) and the prompt instructs the model to treat them as data. Code is never executed by the API.
 - **State model:** `READY → ANALYZING → HINT_AVAILABLE | REVISION_PENDING → ANALYZING … → SOLVED`. A second request while one is running gets 409.
 
-## Privacy / security
-- Sent only on button press: title/number, statement, language, editor code, result text → *your* backend → trimmed to Gemini. No cookies/credentials/other page content. The Gemini key stays in `backend/.env`.
-- Stored: problem identity (not statement), verdicts, ≤1000 chars of feedback, conversation, short mistake summaries. Source code is kept only for the latest 2 attempts per session.
-- Auth: random per-install token in `chrome.storage.local`; only its SHA-256 is stored. All `/ext` routes check ownership (other users' ids return 404). Rate limits: 12 analyses/min, 120 requests/min (in-memory, single process).
-- Permissions: `sidePanel`, `scripting`, `storage`; hosts only `leetcode.com/problems/*` and `localhost:8000`. No remote code.
-- CORS now allows only `localhost:5173` and Chrome-extension origins (was `*`). Behind a cloud IDE set `CORS_EXTRA_ORIGINS=https://your-url`.
-- The original dev routes (`/problems`, `/sessions`, `/attempts/*`, `/users/*`) are unchanged and **unauthenticated**; run the backend on 127.0.0.1 only.
-
-## Verification status (honest)
-Verified: backend (39 tests incl. migration of an old DB, ownership, injection, failure modes, concurrency), a real uvicorn run over HTTP, the extension build (valid MV3 package, no inline/remote scripts), and the page adapter against **synthetic** pages.
-**Not verified:** loading in a real Chrome, the side panel UI interactively, LeetCode's real page markup (the selectors in `src/leetcodeContext.js` are best-effort guesses and are the first thing to adjust if a field shows up under "Could not collect"), and live Gemini responses. LeetCode has no supported extension API; review its Terms of Service and the Chrome Web Store policies before distributing.
-
 ## Original practice UI
 `npm run dev` still serves the original local practice app (runnable Python/C++ problems, `/attempts/*` routes) in a normal browser tab; the same bundle renders the extension UI when loaded as an extension.
