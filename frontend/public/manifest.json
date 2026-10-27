@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Socratic Debugger for LeetCode",
+  "version": "0.1.0",
+  "description": "A Socratic tutor in the side panel: guides you to find your own bugs on LeetCode and keeps a revision journal.",
+  "minimum_chrome_version": "114",
+  "action": { "default_title": "Open Socratic Debugger" },
+  "side_panel": { "default_path": "index.html" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["sidePanel", "scripting", "storage"],
+  "host_permissions": [
+    "https://leetcode.com/problems/*",
+    "http://localhost:8000/*"
+  ]
+}

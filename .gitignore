@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node.js dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Documentation files you don't want to upload
+CODEBASE_OVERVIEW.md
+EXTENSION_QA_GUIDE.md
+PROJECT_INTERVIEW_GUIDE.md
