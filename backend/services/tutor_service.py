@@ -15,18 +15,17 @@ so "resolved" is an explicit signal rather than something inferred from
 the wording of the message.
 """
 
-import os
 import re
 import json
 from pathlib import Path
 
 from dotenv import load_dotenv
-from google import genai
 from pydantic import ValidationError
+from fastapi import HTTPException
 
 from schemas import Diagnosis, TutorHint
+from services.llm_provider import generate, InvalidOutput
 import logging
-from google.genai import types
 logger = logging.getLogger(__name__)
 
 # What the tutor is allowed to do at each hint level. Levels 1-4 must never
@@ -117,30 +116,8 @@ Respond with exactly one JSON object as specified. No prose outside the JSON.
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(env_path)
 
-api_key = os.getenv("GEMINI_API_KEY")
-
-if not api_key:
-    raise RuntimeError("GEMINI_API_KEY could not be loaded")
-
-client = genai.Client(api_key=api_key)
-
-
-# Same model string as before; override with GEMINI_MODEL in .env if it changes.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-
-
-def _call_llm(prompt: str) -> str:
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.3,
-            http_options=types.HttpOptions(timeout=20000),  # ms
-        ),
-    )
-
-    return response.text.strip()
+def _call_llm(prompt: str, validator=None) -> str:
+    return generate(prompt, validator)
 
 
 def contains_leakage(hint: TutorHint, reference_solution: str) -> bool:
@@ -328,7 +305,7 @@ def respond_to_reasoning(
 # ==========================================================================
 # LeetCode (Chrome extension) flow.
 #
-# Same client, same _call_llm, same validate-then-fallback shape as above --
+# Same provider router and _call_llm seam as the local practice UI --
 # only the prompt, the hint ladder, and the extra safety checks differ.
 # ==========================================================================
 
@@ -459,8 +436,8 @@ def contains_code_dump(message: str) -> bool:
     return False
 
 
-# Deterministic fallback when Gemini is unavailable: still verdict-aware and
-# still Socratic, never a dead end.
+# Labelled generic guidance for the first analysis only when providers fail.
+# Ongoing conversations receive a retryable error instead of repeated templates.
 _LC_FALLBACK = {
     "compile_error": {
         1: "Before changing anything: what does the compiler say it expected at the point it stopped?",
@@ -584,28 +561,47 @@ def cap_confidence(diag: Diagnosis | None, *, verdict: str, source: str, has_fai
 
 def get_leetcode_hint(*, hint_level: int, verdict: str, verdict_source: str, verdict_kind: str,
                       feedback: str | None, has_failing_detail: bool, **prompt_fields) -> TutorHint:
-    """Never raises. Gemini failure, bad JSON, schema violations, an over-level
-    answer, a pasted solution, or a premature 'solution' all degrade to the
-    deterministic fallback."""
-    fallback = leetcode_fallback(hint_level, verdict, feedback)
+    """Use provider failover before a labelled initial fallback. Existing
+    conversations receive a retryable 503 instead of another canned turn."""
+    fallback = leetcode_fallback(hint_level, verdict, feedback).model_copy(update={"used_fallback": True})
     prompt = build_leetcode_prompt(
         hint_level=hint_level, verdict=verdict, verdict_source=verdict_source,
         verdict_kind=verdict_kind, feedback=feedback, **prompt_fields)
+    def validate_hint(raw):
+        candidate = TutorHint.model_validate_json(raw)
+        if (candidate.hint_level > hint_level or candidate.solution_leakage
+                or candidate.response_type == "solution" or contains_code_dump(candidate.message)):
+            raise InvalidOutput("Tutor response exceeded the allowed guidance.")
+
     try:
-        hint = TutorHint(**json.loads(_call_llm(prompt)))
-    except Exception:
-        logger.warning("LeetCode LLM call failed, using deterministic fallback", exc_info=True)
-        return fallback
+        hint = TutorHint(**json.loads(_call_llm(prompt, validator=validate_hint)))
+    except Exception as exc:
+        # Log a category/status, never the prompt or provider response body.
+        code = getattr(exc, "code", None)
+        logger.warning("Tutor generation failed: type=%s status=%s", type(exc).__name__, code)
+        reason = getattr(exc, "reason", None) or ("rate_limited" if code == 429 else
+                  "authentication" if code in (401, 403) else
+                  "invalid_output" if isinstance(exc, (ValueError, ValidationError)) else
+                  "provider_unavailable")
+        if prompt_fields.get("user_message") is not None or prompt_fields.get("history"):
+            detail = ("The AI provider's quota or rate limit was reached. Your conversation has not advanced; try again later."
+                      if reason == "rate_limited" else
+                      "The AI is temporarily unavailable. Your conversation has not advanced; please retry shortly.")
+            raise HTTPException(status_code=503, detail=detail) from None
+        return fallback.model_copy(update={"fallback_reason": reason})
 
     if (hint.hint_level > hint_level
+            or hint.solution_leakage
             or hint.response_type == "solution"
             or contains_code_dump(hint.message)):
         logger.warning("LeetCode LLM response rejected (level/solution/code dump)")
-        return fallback
+        if prompt_fields.get("user_message") is not None or prompt_fields.get("history"):
+            raise HTTPException(status_code=503, detail="The AI reply did not meet the tutor rules. Your draft is preserved; please retry.")
+        return fallback.model_copy(update={"fallback_reason": "rejected_output"})
 
     # The server owns the hint ladder: report the level it assigned, not
     # whatever (lower) level the model claims, so escalation can't stall.
-    hint = hint.model_copy(update={"hint_level": hint_level})
+    hint = hint.model_copy(update={"hint_level": hint_level, "used_fallback": False, "fallback_reason": None})
     if verdict == "accepted":
         hint = hint.model_copy(update={"diagnosis": None})
     else:

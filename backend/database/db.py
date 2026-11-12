@@ -54,6 +54,12 @@ def get_db():
 # missing these and every query touching them would fail. This is a deliberately
 # tiny stand-in for Alembic: additive ALTER TABLE only, never destructive.
 _ADDED_COLUMNS = {
+    "tutor_interactions": [
+        ("response_type", "VARCHAR(24)"),
+        ("reasoning_stage", "VARCHAR(24)"),
+        ("used_fallback", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("fallback_reason", "VARCHAR(32)"),
+    ],
     "users": [("token_hash", "VARCHAR(64)")],
     "problems": [
         ("source", "VARCHAR(20) NOT NULL DEFAULT 'local'"),

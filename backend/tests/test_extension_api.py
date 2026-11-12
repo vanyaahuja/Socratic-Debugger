@@ -16,6 +16,7 @@ os.environ.setdefault("GEMINI_API_KEY", "test-key")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -24,6 +25,7 @@ import services.tutor_service as ts
 from database.db import Base, SessionLocal, engine, ensure_columns
 from main import app
 from models import Attempt, MistakeObservation, Session as SessionModel, TutorInteraction
+from services import llm_provider as lp
 
 TOKEN_A = "a" * 40
 TOKEN_B = "b" * 40
@@ -34,7 +36,7 @@ class FakeLLM:
         self.reply = None      # dict -> JSON, str -> raw, Exception -> raised
         self.prompts = []
 
-    def __call__(self, prompt):
+    def __call__(self, prompt, validator=None):
         self.prompts.append(prompt)
         if isinstance(self.reply, Exception):
             raise self.reply
@@ -234,7 +236,8 @@ def test_premature_solution_type_and_overlevel_rejected(client, fresh):
     fresh.reply = tutor(response_type="solution", hint_level=1)
     assert analyze(client).json()["tutor"]["response_type"] == "question"
     fresh.reply = tutor(hint_level=4)
-    assert analyze(client, code="other").json()["tutor"]["hint_level"] <= 2
+    # An ongoing conversation must get a retryable error, not another canned turn.
+    assert analyze(client, code="other").status_code == 503
 
 
 def test_gemini_failure_uses_deterministic_fallback_and_rule_diagnosis(client, fresh):
@@ -309,6 +312,79 @@ def test_session_restored_by_slug(client):
     assert client.get("/ext/session/by-slug/unknown-slug", headers=H()).json() is None
 
 
+def test_restored_tutor_retains_reply_controls(client, fresh):
+    fresh.reply = tutor(response_type="instruction", reasoning_stage="implement_fix")
+    analyze(client)
+    view = client.get("/ext/session/by-slug/binary-search", headers=H()).json()
+    assert view["messages"][-1]["response_type"] == "instruction"
+    assert view["messages"][-1]["reasoning_stage"] == "implement_fix"
+
+
+def test_failed_reply_keeps_transcript_and_allows_retry(client, fresh):
+    first = analyze(client).json()
+    sid = first["session_id"]
+    fresh.reply = RuntimeError("provider unavailable")
+    failed = client.post(f"/ext/session/{sid}/reply", json={"message": "my answer"}, headers=H())
+    assert failed.status_code == 503
+    view = client.get(f"/ext/session/{sid}", headers=H()).json()
+    assert len(view["messages"]) == 1
+    assert view["state"] != "ANALYZING"
+    fresh.reply = tutor(message="Thanks, now trace the last iteration.")
+    retried = client.post(f"/ext/session/{sid}/reply", json={"message": "my answer"}, headers=H())
+    assert retried.status_code == 200
+    view = client.get(f"/ext/session/{sid}", headers=H()).json()
+    assert [m["sender"] for m in view["messages"]] == ["tutor", "student", "tutor"]
+    assert fresh.prompts[-1].count("my answer") == 1
+
+
+def test_real_router_preserves_conversation_through_primary_outage(client, monkeypatch):
+    """Exercise HTTP API -> prompt builder -> real router -> backup, twice."""
+    monkeypatch.setenv("LLM_PRIMARY_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_PRIMARY_MODEL", "test-model")
+    monkeypatch.setenv("LLM_PRIMARY_API_KEY", "test-primary-key")
+    monkeypatch.setenv("LLM_BACKUP_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_BACKUP_BASE_URL", "https://backup.example/v1")
+    monkeypatch.setenv("LLM_BACKUP_MODEL", "test-backup-model")
+    monkeypatch.setenv("LLM_BACKUP_API_KEY", "test-backup-key")
+    monkeypatch.setenv("LLM_MAX_ATTEMPTS", "1")
+    prompts = []
+
+    def handler(req):
+        if req.url.host != "backup.example":
+            return httpx.Response(503)
+        prompt = json.loads(req.content)["messages"][0]["content"]
+        prompts.append(prompt)
+        hint = tutor(message="What happens on the last iteration?" if len(prompts) == 1 else
+                     "Correct, now explain how you would include the remaining candidate.")
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(hint)}}]})
+
+    import asyncio
+    monkeypatch.setattr(ts, "_call_llm", lambda prompt, validator=None: asyncio.run(
+        lp.generate_async(prompt, validator, transport=httpx.MockTransport(handler))))
+    first = analyze(client).json()
+    assert first["tutor"]["used_fallback"] is False
+    sid = first["session_id"]
+    res = client.post(f"/ext/session/{sid}/reply", json={"message": "I skip the final candidate"}, headers=H())
+    assert res.status_code == 200
+    assert res.json()["tutor"]["message"].startswith("Correct")
+    assert "What happens on the last iteration?" in prompts[-1]
+    assert prompts[-1].count("I skip the final candidate") == 1
+    view = client.get(f"/ext/session/{sid}", headers=H()).json()
+    assert [m["sender"] for m in view["messages"]] == ["tutor", "student", "tutor"]
+
+
+def test_fallback_is_labelled_and_does_not_advance_progress(client, fresh):
+    fresh.reply = RuntimeError("provider unavailable")
+    res = analyze(client).json()
+    assert res["tutor"]["used_fallback"] is True
+    with SessionLocal() as db:
+        assert db.get(SessionModel, res["session_id"]).highest_hint_level == 0
+    restored = client.get(f"/ext/session/{res['session_id']}", headers=H()).json()
+    assert restored["messages"][0]["used_fallback"] is True
+    assert analyze(client, session_id=res["session_id"]).status_code == 503
+    assert len(client.get(f"/ext/session/{res['session_id']}", headers=H()).json()["messages"]) == 1
+
+
 def test_explanation_request_jumps_to_level_4(client):
     assert analyze(client, request_explanation=True).json()["hint_level"] == 4
 
@@ -379,6 +455,8 @@ def test_existing_database_is_migrated_in_place(tmp_path, monkeypatch):
         c.execute(text("CREATE TABLE problems (id INTEGER PRIMARY KEY, title VARCHAR(200) NOT NULL)"))
         c.execute(text("CREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER)"))
         c.execute(text("CREATE TABLE attempts (id INTEGER PRIMARY KEY, session_id INTEGER)"))
+        c.execute(text("CREATE TABLE tutor_interactions (id INTEGER PRIMARY KEY, tutor_question TEXT)"))
+        c.execute(text("INSERT INTO tutor_interactions VALUES (1, 'Existing question')"))
         c.execute(text("INSERT INTO users VALUES (1, 'Guest', '2026-01-01')"))
         c.execute(text("INSERT INTO problems VALUES (1, 'Old problem')"))
     monkeypatch.setattr(dbmod, "engine", old)
@@ -389,3 +467,5 @@ def test_existing_database_is_migrated_in_place(tmp_path, monkeypatch):
         assert {"source", "external_slug", "external_id", "url"} <= cols
         assert c.execute(text("SELECT source FROM problems WHERE id=1")).scalar() == "local"
         assert c.execute(text("SELECT name FROM users WHERE id=1")).scalar() == "Guest"
+        restored = c.execute(text("SELECT tutor_question, response_type, used_fallback FROM tutor_interactions WHERE id=1")).one()
+        assert restored == ("Existing question", None, 0)

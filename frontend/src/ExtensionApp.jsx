@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { extApi } from './api/client'
 import { collectLeetCodeContext } from './leetcodeContext'
+import { collectPageContext } from './pageCollection'
 import TutorChat from './components/TutorChat'
 import MistakesPanel from './MistakesPanel'
 
@@ -26,12 +27,7 @@ async function readActiveLeetCodeTab() {
 }
 
 async function collectFromTab(tabId) {
-  const [res] = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN', // needed to reach the page's editor object
-    func: collectLeetCodeContext,
-  })
-  return res?.result
+  return collectPageContext(chrome, tabId, collectLeetCodeContext)
 }
 
 const noteFor = (d) =>
@@ -39,12 +35,23 @@ const noteFor = (d) =>
     ? `Observed: ${d.observed}  ·  Hypothesis (${d.confidence} confidence): ${d.hypothesis}`
     : null
 
+const FALLBACK_REASON = {
+  rate_limited: 'The AI provider reported a quota or rate limit.',
+  authentication: 'The AI provider rejected the backend credentials or access.',
+  configuration: 'The backend AI configuration is incomplete or invalid.',
+  invalid_output: 'The AI response could not be read in the required format.',
+  provider_unavailable: 'The AI request failed; check the backend status log.',
+  rejected_output: 'The AI response exceeded the allowed hint level or included solution code.',
+}
+
 const toMessage = (tutor) => ({
   from: 'tutor',
   text: tutor.message,
   responseType: tutor.response_type,
   reasoningStage: tutor.reasoning_stage,
-  note: noteFor(tutor.diagnosis),
+  note: tutor.used_fallback
+    ? `${FALLBACK_REASON[tutor.fallback_reason] || 'AI unavailable.'} This is a general debugging prompt, not a personalized AI reply.`
+    : noteFor(tutor.diagnosis),
 })
 
 export default function ExtensionApp() {
@@ -91,22 +98,45 @@ export default function ExtensionApp() {
       if (!s || slugRef.current !== slug) return
       setSessionId(s.session_id)
       setSessionState(s.state)
-      setMessages(s.messages.map((m) => ({ from: m.sender, text: m.text })))
+      setMessages(s.messages.map((m) => ({ from: m.sender, text: m.text,
+        responseType: m.response_type || (m.sender === 'tutor' ? 'question' : undefined),
+        reasoningStage: m.reasoning_stage,
+        note: m.used_fallback ? `${FALLBACK_REASON[m.fallback_reason] || 'AI unavailable.'} General debugging prompt.` : null })))
     }).catch(() => { /* backend offline: the error appears when the student asks for help */ })
   }, [active])
 
   const collect = async () => {
     const c = await collectFromTab(active.tabId)
+    if (c.problem?.slug && c.problem.slug !== slugRef.current) {
+      throw new Error('The active problem changed. Reopen the panel on the new problem and try again.')
+    }
     setCtx(c)
     statementRef.current = c?.problem?.statement || ''
     return c
   }
 
+  const preview = async () => {
+    if (busy) return
+    setBusy(true); setError(null); setInfo('Reading the LeetCode page…')
+    try {
+      const c = await collect()
+      if (!c.ok) throw new Error('This tab is not a LeetCode problem page.')
+      setInfo('Preview updated below. This action does not send data to the backend or AI provider.')
+    } catch (e) {
+      setInfo(null)
+      setError(e.message || 'Could not read this page.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const requestHelp = async ({ explain = false, claimFixed = false } = {}) => {
     if (!active || busy) return
+    const requestedSlug = slugRef.current
     setBusy(true); setError(null); setInfo(null)
     try {
       const c = await collect()
+      if (slugRef.current !== requestedSlug) return
       if (!c?.ok) throw new Error('This tab is not a LeetCode problem page.')
       if (!c.code) throw new Error('Could not read your code from the page. Click inside the editor once and try again.')
       const submission = claimFixed
@@ -121,6 +151,7 @@ export default function ExtensionApp() {
         request_explanation: explain,
         missing_context: c.missing,
       })
+      if (slugRef.current !== requestedSlug) return
       setSessionId(res.session_id)
       setSessionState(res.state)
       setVerification(res.verification)
@@ -129,22 +160,25 @@ export default function ExtensionApp() {
       else if (res.duplicate_attempt) setInfo('Your code and result have not changed since your last request.')
       else if (res.mistake_note) setInfo(res.mistake_note)
     } catch (e) {
-      setError(e.message)
+      if (slugRef.current === requestedSlug) setError(e.message)
     } finally {
       setBusy(false)
     }
   }
 
   const sendReply = async (text) => {
-    if (!sessionId || busy) return
+    if (!sessionId || busy) return false
+    const requestedSlug = slugRef.current
     setBusy(true); setError(null); setInfo(null)
-    setMessages((prev) => [...prev, { from: 'student', text }])
     try {
       const res = await extApi.reply(sessionId, text, statementRef.current)
+      if (slugRef.current !== requestedSlug) return false
       setSessionState(res.state)
-      setMessages((prev) => [...prev, toMessage(res.tutor)])
+      setMessages((prev) => [...prev, { from: 'student', text }, toMessage(res.tutor)])
+      return true
     } catch (e) {
-      setError(e.message)
+      if (slugRef.current === requestedSlug) setError(e.message)
+      return false
     } finally {
       setBusy(false)
     }
@@ -196,7 +230,7 @@ export default function ExtensionApp() {
                 <button onClick={() => requestHelp({ claimFixed: true })} disabled={busy} title="Not verified until you submit on LeetCode">
                   I think it's fixed
                 </button>
-                <button onClick={async () => { try { await collect() } catch (e) { setError(e.message) } }} disabled={busy}>
+                <button onClick={preview} disabled={busy}>
                   Preview what is sent
                 </button>
               </div>
@@ -220,6 +254,7 @@ export default function ExtensionApp() {
               )}
 
               <TutorChat
+                key={active.slug}
                 messages={messages}
                 canRequestHint={!!active}
                 waiting={busy}
@@ -235,7 +270,8 @@ export default function ExtensionApp() {
             <p style={{ margin: '6px 0' }}>
               <strong>Sent</strong> only when you press a button: the problem title/number, the problem statement,
               your language, the code in the editor, and the latest result text shown on the page — to your own
-              backend (localhost:8000), which sends a trimmed version to Gemini. No cookies, account details, or
+              backend, which sends a trimmed version to its AI provider. If a backup provider is enabled,
+              the same context may be sent there when the primary fails. No cookies, account details, or
               other page content are read.
             </p>
             <p style={{ margin: '6px 0' }}>

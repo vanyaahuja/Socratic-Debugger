@@ -17,7 +17,7 @@ Chrome side panel (React, same bundle as the dev UI)
    ▼
 FastAPI  /ext/*   (token auth, ownership checks, rate limits, validated models)
    │
-   ├─ services/tutor_service.py   Gemini (existing client) + deterministic fallback + output guards
+   ├─ services/tutor_service.py   configurable primary/backup + validated tutor output
    ├─ services/progress_service.py hint ladder, mistake journal, learner patterns (rule-based)
    └─ SQLite (existing models + MistakeObservation)
 ```
@@ -29,7 +29,8 @@ FastAPI  /ext/*   (token auth, ownership checks, rate limits, validated models)
 cd backend
 .venv\Scripts\activate            # your existing virtualenv
 pip install -r requirements.txt
-# backend\.env must contain:  GEMINI_API_KEY=...   (optional: GEMINI_MODEL=...)
+# Copy backend/.env.example to backend/.env and set provider, key and model.
+# See LLM_RELIABILITY.md for primary/backup configuration and merge instructions.
 python -m database.seed           # only needed for the original practice UI
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -56,15 +57,15 @@ Needs Chrome 114+. After code changes: `npm run build`, then click reload on the
 7. **My Mistakes**: search, filter, *Revision mode* (hint first, reveal later), mark reviewed/for revision, delete.
 8. Privacy section → **Delete all my stored history**.
 
-Automated: `cd backend && python -m pytest tests -q` (39 tests; the LLM is mocked) and, for the adapter, see "Verification status".
+Automated: `cd backend && python -m pytest tests -q` (provider HTTP calls are mocked; see LLM_RELIABILITY.md for focused checks) and, for the adapter, see "Verification status".
 
 ## Behaviour that matters
 - **Verified vs reported.** "Solved" is set only when an *Accepted* **submission** is read from the page. "I think it's fixed" and a *Run* that passes the sample cases are recorded as unverified and never mark a problem solved.
 - **No overclaiming.** A bare Wrong Answer cannot yield a root-cause claim: confidence is capped (medium without a failing input, low if the result wasn't observed on the page). Low-confidence diagnoses are never journaled; journaled ones are labelled *hypothesis* unless a compiler/runtime error confirms them.
 - **Hint ladder:** 1 conceptual probe → 2 evidence-based → 3 targeted → 4 detailed explanation (also via *Explain the root cause*) → 5 transfer check (only after a verified Accepted). Asking again without changing code escalates; improved code holds the level; chat replies never escalate. Full corrected solutions are rejected by a server-side guard.
 - **Dedup.** Same code + same result = one attempt, no new journal entry. Same mistake in the same problem/session updates one row; the same category on another problem is a new row (that's what makes patterns).
-- **Patterns** (rule-based, from the same rows as the journal): 1 problem = single observation, 2 = suspected recurring, 3+ = supported pattern; trend improving/needs support/stable. Counts are presented as evidence of habits, never as a skill score. Only the 3 most relevant patterns are sent to Gemini.
-- **Gemini down / bad output** (timeout 20 s, invalid JSON, over-level, pasted solution) → deterministic, verdict-aware fallback; compile/runtime/TLE/MLE errors still produce a rule-based diagnosis.
+- **Patterns** (rule-based, from the same rows as the journal): 1 problem = single observation, 2 = suspected recurring, 3+ = supported pattern; trend improving/needs support/stable. Counts are presented as evidence of habits, never as a skill score. Only the 3 most relevant patterns are sent to the configured AI provider.
+- **Provider unavailable / invalid output:** bounded retries and optional backup, with a configurable total deadline of at most 30 seconds. Only an initial analysis may show a labelled generic fallback; an existing conversation receives a retryable error without advancing its transcript or hint level. See [LLM_RELIABILITY.md](LLM_RELIABILITY.md).
 - **Untrusted input.** Code, statement, feedback and chat text are wrapped in `<untrusted_*>` tags (closing-tag injection is stripped) and the prompt instructs the model to treat them as data. Code is never executed by the API.
 - **State model:** `READY → ANALYZING → HINT_AVAILABLE | REVISION_PENDING → ANALYZING … → SOLVED`. A second request while one is running gets 409.
 

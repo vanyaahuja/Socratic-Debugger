@@ -224,7 +224,11 @@ def _tutor_turn(db: DBSession, user: User, session: SessionModel, problem: Probl
         request_explanation=request_explanation,
         profile_lines=patterns_for_prompt(patterns, ladder_verdict), missing_context=missing)
 
-    add_tutor_interaction(db, attempt_id=attempt.id, hint_level=hint.hint_level, question=hint.message)
+    interaction = add_tutor_interaction(db, attempt_id=attempt.id, hint_level=hint.hint_level, question=hint.message)
+    interaction.response_type = hint.response_type
+    interaction.reasoning_stage = hint.reasoning_stage
+    interaction.used_fallback = hint.used_fallback
+    interaction.fallback_reason = hint.fallback_reason
 
     mistake_id, note, recorded = None, None, False
     if verified:
@@ -237,7 +241,8 @@ def _tutor_turn(db: DBSession, user: User, session: SessionModel, problem: Probl
         session.solved, session.completed_at = True, datetime.utcnow()
         final_state = "SOLVED"
     else:
-        session.highest_hint_level = max(session.highest_hint_level, level)
+        if not hint.used_fallback:
+            session.highest_hint_level = max(session.highest_hint_level, level)
         ok, note = should_record_mistake(ladder_verdict, source, hint.diagnosis)
         if ok:
             row = record_mistake(
@@ -320,8 +325,6 @@ def reply(session_id: int, payload: ReplyRequest, user: User = Depends(current_u
 
     prior_state = _claim(db, session)
     try:
-        interactions[-1].student_response = payload.message
-        db.commit()
         prev = (db.query(Attempt).filter(Attempt.session_id == session.id, Attempt.id != attempt.id)
                 .order_by(Attempt.attempt_number.desc()).first())
         verdict, source = attempt.verdict or "unknown", attempt.verdict_source or "none"
@@ -332,6 +335,8 @@ def reply(session_id: int, payload: ReplyRequest, user: User = Depends(current_u
             passed=attempt.tests_passed or None, total=attempt.tests_total or None, prev=prev,
             code_changed=False, request_explanation=False, user_message=payload.message,
             escalate=False, missing=[], new_attempt=False)
+        interactions[-1].student_response = payload.message
+        db.commit()
         if session.solved:  # a chat after a verified solve stays SOLVED
             _set_state(db, session, "SOLVED")
             state = "SOLVED"
@@ -348,7 +353,11 @@ def reply(session_id: int, payload: ReplyRequest, user: User = Depends(current_u
 def _session_view(db: DBSession, s: SessionModel) -> SessionView:
     msgs: list[TranscriptMessage] = []
     for i in _interactions(db, s.id):
-        msgs.append(TranscriptMessage(sender="tutor", text=i.tutor_question))
+        msgs.append(TranscriptMessage(sender="tutor", text=i.tutor_question,
+                                      response_type=i.response_type or "question",
+                                      reasoning_stage=i.reasoning_stage,
+                                      used_fallback=i.used_fallback,
+                                      fallback_reason=i.fallback_reason))
         if i.student_response:
             msgs.append(TranscriptMessage(sender="student", text=i.student_response))
     problem = db.get(Problem, s.problem_id)

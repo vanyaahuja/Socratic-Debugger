@@ -21,10 +21,15 @@ export default function TutorChat({ messages, onRequestHint, onSubmitReasoning, 
     last.reasoningStage !== 'resolved' &&
     (last.responseType === 'question' || last.responseType === 'acknowledgement')
 
-  function handleRespond() {
-    if (!reasoning.trim()) return
-    onSubmitReasoning(reasoning)
-    setReasoning('')
+  async function handleRespond() {
+    if (!reasoning.trim() || waiting) return
+    const submitted = reasoning
+    try {
+      const sent = await onSubmitReasoning(submitted)
+      if (sent !== false) setReasoning((current) => current === submitted ? '' : current)
+    } catch {
+      // The parent displays the error. Keep the draft available for retry.
+    }
   }
 
   return (
