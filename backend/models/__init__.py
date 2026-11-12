@@ -133,6 +133,7 @@ class Attempt(Base):
     # Extension attempts: what the page reported, and how trustworthy that is.
     verdict = Column(String(24), nullable=True)
     verdict_source = Column(String(16), nullable=True)   # page | user_reported
+    verdict_kind = Column(String(16), nullable=True)     # submit | run | none
     code_hash = Column(String(64), nullable=True)
     feedback = Column(Text, nullable=True)               # short snippet only
 
