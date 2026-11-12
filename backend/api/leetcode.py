@@ -165,6 +165,8 @@ def _prune_old_code(db: DBSession, session_id: int) -> None:
 
 
 def _state_after(hint: TutorHint) -> str:
+    if hint.response_type == "question":
+        return "HINT_AVAILABLE"
     wants_edit = (hint.response_type == "instruction"
                   or hint.reasoning_stage in ("formulate_fix", "implement_fix", "resolved"))
     return "REVISION_PENDING" if wants_edit else "HINT_AVAILABLE"
@@ -276,15 +278,22 @@ def analyze(payload: AnalyzeRequest, user: User = Depends(current_user), db: DBS
         code_changed = prev is None or prev.code_hash != code_hash
         # Same code + same verdict as the last attempt = a repeated request, not a new attempt.
         duplicate = prev is not None and not code_changed \
-            and prev.verdict == sub.status and prev.verdict_source == sub.source
+            and prev.verdict == sub.status and prev.verdict_source == sub.source \
+            and prev.verdict_kind == sub.kind
         if duplicate:
             attempt = prev
+            # Expanding a failing case can reveal more evidence for the same
+            # attempt. Keep it for later replies without inventing a submission.
+            attempt.feedback = (sub.message or "")[:2000] or None
+            attempt.tests_passed = sub.testcases_passed or 0
+            attempt.tests_total = sub.testcases_total or 0
+            db.commit()
         else:
             attempt = create_attempt(
                 db, session_id=session.id, attempt_number=next_attempt_number(db, session.id),
                 language=payload.language, submitted_code=payload.code, code_hash=code_hash,
                 verdict=sub.status, verdict_source=sub.source,
-                feedback=(sub.message or "")[:1000] or None,
+                verdict_kind=sub.kind, feedback=(sub.message or "")[:2000] or None,
                 tests_passed=sub.testcases_passed or 0, tests_total=sub.testcases_total or 0)
             session.total_attempts = attempt.attempt_number
             db.commit()
@@ -331,8 +340,8 @@ def reply(session_id: int, payload: ReplyRequest, user: User = Depends(current_u
         hint, level, verified, recorded, mistake_id, note, state = _tutor_turn(
             db, user, session, problem, attempt, code=attempt.submitted_code, language=attempt.language,
             statement=payload.statement, verdict=verdict, source=source,
-            kind="submit" if source == "page" else "none", feedback=attempt.feedback,
-            passed=attempt.tests_passed or None, total=attempt.tests_total or None, prev=prev,
+            kind=attempt.verdict_kind or ("submit" if session.solved else "none"), feedback=attempt.feedback,
+            passed=attempt.tests_passed, total=attempt.tests_total or None, prev=prev,
             code_changed=False, request_explanation=False, user_message=payload.message,
             escalate=False, missing=[], new_attempt=False)
         interactions[-1].student_response = payload.message
