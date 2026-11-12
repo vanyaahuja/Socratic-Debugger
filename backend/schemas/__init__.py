@@ -132,6 +132,8 @@ class HintRequest(BaseModel):
 
 class TutorHint(BaseModel):
     message: str
+    used_fallback: bool = False
+    fallback_reason: Literal["rate_limited", "authentication", "configuration", "invalid_output", "provider_unavailable", "rejected_output"] | None = None
 
     # Lets the frontend distinguish "still asking something" from "nothing
     # left to respond to" without parsing message text. "solution" is only
@@ -249,6 +251,8 @@ class TranscriptMessage(BaseModel):
     text: str
     response_type: str | None = None
     reasoning_stage: str | None = None
+    used_fallback: bool = False
+    fallback_reason: str | None = None
 
 
 class SessionView(BaseModel):

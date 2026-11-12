@@ -166,6 +166,10 @@ class TutorInteraction(Base):
     attempt_id = Column(Integer, ForeignKey("attempts.id"), nullable=False)
     hint_level = Column(Integer, nullable=False)
     tutor_question = Column(Text, nullable=False)
+    response_type = Column(String(24), nullable=True)
+    reasoning_stage = Column(String(24), nullable=True)
+    used_fallback = Column(Boolean, default=False, nullable=False, server_default="0")
+    fallback_reason = Column(String(32), nullable=True)
     student_response = Column(Text, nullable=True)  # filled in later via /reasoning endpoint
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
