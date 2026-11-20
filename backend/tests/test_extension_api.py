@@ -305,6 +305,41 @@ def test_reply_keeps_context_and_does_not_escalate(client, fresh):
     assert [m["sender"] for m in view["messages"]] == ["tutor", "student", "tutor"]
 
 
+def test_reply_after_resolved_turn_still_continues(client, fresh):
+    fresh.reply = tutor(response_type="acknowledgement", reasoning_stage="resolved")
+    first = analyze(client).json()
+    fresh.reply = tutor(message="The frequency array grows with n.", response_type="acknowledgement")
+    r = client.post(f"/ext/session/{first['session_id']}/reply", json={"message": "What is its space complexity?"}, headers=H())
+    assert r.status_code == 200
+    assert "frequency array" in r.json()["tutor"]["message"]
+
+
+def test_updated_wrong_answer_details_are_retained_without_inventing_attempt(client, fresh):
+    first = analyze(client, message="Wrong Answer", session_id=None).json()
+    second = analyze(client, session_id=first["session_id"], message="Input: [2,2] Output: [1,2] Expected: [2,1]").json()
+    assert second["duplicate_attempt"] is True
+    assert count(Attempt) == 1
+    sid = first["session_id"]
+    client.post(f"/ext/session/{sid}/reply", json={"message": "I reversed the order"}, headers=H())
+    assert "Output: [1,2] Expected: [2,1]" in fresh.prompts[-1]
+
+
+def test_chat_does_not_promote_sample_or_ambiguous_acceptance(client, fresh):
+    first = analyze(client, status="accepted", kind="none").json()
+    assert first["solved"] is False
+    fresh.reply = tutor(diagnosis=None)
+    r = client.post(f"/ext/session/{first['session_id']}/reply", json={"message": "How do I test more cases?"}, headers=H())
+    assert r.json()["solved"] is False
+
+
+def test_zero_passed_is_retained_in_followup_prompt(client, fresh):
+    payload = body()
+    payload["submission"]["testcases_passed"] = 0
+    first = client.post('/ext/analyze', json=payload, headers=H()).json()
+    client.post(f"/ext/session/{first['session_id']}/reply", json={"message": "I am stuck"}, headers=H())
+    assert "0/10 passed" in fresh.prompts[-1]
+
+
 def test_session_restored_by_slug(client):
     sid = analyze(client).json()["session_id"]
     v = client.get("/ext/session/by-slug/binary-search", headers=H()).json()

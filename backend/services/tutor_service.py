@@ -332,6 +332,7 @@ Teaching rules:
 - If the verdict source is not "page" (e.g. user_reported) or the verdict is unknown, you cannot confirm anything: confidence must be "low".
 - Never claim the problem is solved unless the verdict is Accepted with source "page" and kind "submit". A user-reported success is unverified: ask them to submit and check.
 - Ask at most ONE question per turn, never repeat a question already asked in the conversation, and do not re-ask what the student already answered correctly.
+- A solved submission does not end the conversation. Keep answering follow-ups about complexity or alternatives. Use response_type "question" and reasoning_stage "reflect" for reflection questions, even after Accepted; use "resolved" only when this explanation is complete, never to lock further replies.
 - Use the learner profile only to choose what to emphasize; never mention scores or judge the student's ability.
 - Be concise (under 120 words).
 
@@ -408,7 +409,7 @@ Submission facts (reported by the page, not by the student unless source says us
 - verdict source: {verdict_source}
 - kind: {verdict_kind}
 - testcases: {testcases or "unknown"}
-{_untrusted("feedback", feedback, 1500)}
+{_untrusted("feedback", feedback, 2000)}
 
 Change since previous attempt: {previous_attempt}
 

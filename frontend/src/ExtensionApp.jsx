@@ -248,6 +248,7 @@ export default function ExtensionApp() {
                     <li>Code: {ctx.code ? `${ctx.code.split('\n').length} lines` : '—'}</li>
                     <li>Latest result: {ctx.submission?.status !== 'unknown' ? `${ctx.submission.status} (${ctx.submission.kind})` : 'none visible'}</li>
                   </ul>
+                  {ctx.submission?.message && <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: '12px' }}>{ctx.submission.message}</pre>}
                   {ctx.missing?.length > 0 && <div style={{ color: '#b45309' }}>Could not collect: {ctx.missing.join(', ')}</div>}
                   {ctx.notes?.map((n) => <div key={n} style={{ color: '#666' }}>Note: {n}</div>)}
                 </details>
@@ -256,6 +257,7 @@ export default function ExtensionApp() {
               <TutorChat
                 key={active.slug}
                 messages={messages}
+                canReply={!!sessionId}
                 canRequestHint={!!active}
                 waiting={busy}
                 hintLabel="Analyze again with my latest code"

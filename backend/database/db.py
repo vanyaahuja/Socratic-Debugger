@@ -74,6 +74,7 @@ _ADDED_COLUMNS = {
     "attempts": [
         ("verdict", "VARCHAR(24)"),
         ("verdict_source", "VARCHAR(16)"),
+        ("verdict_kind", "VARCHAR(16)"),
         ("code_hash", "VARCHAR(64)"),
         ("feedback", "TEXT"),
     ],
