@@ -177,6 +177,24 @@ class TutorInteraction(Base):
     attempt = relationship("Attempt", back_populates="tutor_interactions")
 
 
+class RevisionJournal(Base):
+    """One code-free revision entry per learner/problem, independent of confidence."""
+    __tablename__ = "revision_journal"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=False)
+    how_found = Column(Text, nullable=False, default="")
+    how_fixed = Column(Text, nullable=False, default="")
+    takeaway = Column(Text, nullable=False, default="")
+    outcome = Column(String(24), nullable=False, default="in_progress")
+    uncertain = Column(Boolean, nullable=False, default=True)
+    edited = Column(Boolean, nullable=False, default=False)
+    reviewed = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    problem = relationship("Problem")
+    __table_args__ = (UniqueConstraint("user_id", "problem_id", name="uq_revision_user_problem"),)
+
+
 class ConceptProgress(Base):
     __tablename__ = "concept_progress"
 
