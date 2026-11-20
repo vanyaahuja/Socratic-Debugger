@@ -12,7 +12,7 @@ before(async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   ;({ createRoot } = await import('react-dom/client'))
   ;({ Simulate } = await import('react-dom/test-utils'))
-  server = await createServer({ server: { middlewareMode: true, watch: null }, appType: 'custom' })
+  server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom' })
   Component = (await server.ssrLoadModule('/src/components/TutorChat.jsx')).default
 })
 afterEach(() => {

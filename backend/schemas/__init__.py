@@ -130,8 +130,33 @@ class HintRequest(BaseModel):
     attempt_id: int
 
 
+class JournalPointers(BaseModel):
+    how_found: str = Field(default="", max_length=600)
+    how_fixed: str = Field(default="", max_length=600)
+    takeaway: str = Field(default="", max_length=400)
+    uncertain: bool = True
+
+
+class JournalPatch(BaseModel):
+    how_found: str | None = Field(default=None, max_length=600)
+    how_fixed: str | None = Field(default=None, max_length=600)
+    takeaway: str | None = Field(default=None, max_length=400)
+    reviewed: bool | None = None
+
+
+class JournalOut(JournalPointers):
+    id: int
+    problem_title: str
+    problem_url: str | None
+    outcome: str
+    edited: bool
+    reviewed: bool
+    updated_at: datetime
+
+
 class TutorHint(BaseModel):
     message: str
+    journal_note: JournalPointers | None = None
     used_fallback: bool = False
     fallback_reason: Literal["rate_limited", "authentication", "configuration", "invalid_output", "provider_unavailable", "rejected_output"] | None = None
 
