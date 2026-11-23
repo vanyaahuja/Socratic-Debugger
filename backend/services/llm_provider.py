@@ -121,9 +121,10 @@ async def _attempt(client, provider, prompt, max_tokens, validator):
             if len(data) > 1024 * 1024:
                 raise InvalidOutput
     raw = _text(provider, json.loads(data))
-    TutorHint.model_validate_json(raw)
     if validator:
         validator(raw)
+    else:
+        TutorHint.model_validate_json(raw)
     return raw, 200, None
 
 

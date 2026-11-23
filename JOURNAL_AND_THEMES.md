@@ -7,8 +7,10 @@
 2. Fix the code, submit on LeetCode, and analyze the changed version/result.
 3. The existing tutor request includes the earlier available version and current
    code. It asks for short, plain-language pointers about the clue, how the
-   observed change helps, and a reminder for next time. No extra model call is
-   added. The server saves a fix only when versions differ and the current
+   observed change helps, and a reminder for next time. If an accepted turn omits
+   usable notes, the panel starts a separate, schema-checked notes request. It
+   does not block the tutoring reply. Generate notes can repair existing entries
+   from retained versions; it never runs just because the journal list is read. The server saves a fix only when versions differ and the current
    outcome is Accepted or explicitly user-reported solved.
 4. Open My Mistakes to search, edit, mark reviewed, export, or hide the fix and
    try recalling it. Earlier records/patterns remain available in a secondary
@@ -16,8 +18,8 @@
 
 The journal stores problem identity, prose pointers, verification/review flags
 and an update time. It never stores a source snippet or diff. The existing
-Attempt table still keeps only the latest two code versions per session for
-tutoring; this PR does not add another source-code store. The fix comparison is
+Attempt table keeps at most two code versions per session for tutoring: the
+latest and a distinct earlier unsolved version when available; this PR does not add another source-code store. The fix comparison is
 against the available preceding version, not necessarily the original version
 from the start of a long session. If the baseline has been pruned or never
 captured, the fix remains pending and can be edited manually.
@@ -87,7 +89,10 @@ behavior. Provider HTTP is mocked, so no real quota is consumed.
 The local browser preview could not connect (connection timeout), so appearance
 has not been visually verified in a live side panel. Live model note quality and
 LeetCode DOM extraction still need checking with your configured providers.
-Optional journal notes that a model omits remain pending rather than fabricated.
+Missing notes have explicit reasons and a Generate notes recovery action when
+saved versions support it. Notes generation uses the configured primary/backup
+providers and can consume additional quota. Missing history stays pending rather
+than being fabricated; already-discarded code cannot be recovered.
 Free-tier capacity and the previously documented public-deployment constraints
 still apply. The local practice app is retained; the new theme is scoped to the
 extension interface.

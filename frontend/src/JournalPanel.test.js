@@ -4,7 +4,7 @@ import React, { act } from 'react'
 import { JSDOM } from 'jsdom'
 import { createServer } from 'vite'
 
-let dom, server, Panel, useTheme, api, createRoot, Simulate, root, store
+let dom, server, Panel, Extension, useTheme, api, createRoot, Simulate, root, store
 const sample = { id: 1, problem_title: 'Set Mismatch', problem_url: 'https://leetcode.com/problems/set-mismatch/',
   how_found: 'The values were right, but their order was wrong.', how_fixed: 'Kept each value separate, then put the duplicate first.',
   takeaway: 'Check the required output order.', outcome: 'verified_accepted', edited: false, uncertain: true, reviewed: false }
@@ -16,6 +16,7 @@ before(async () => {
   ;({ Simulate } = await import('react-dom/test-utils'))
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom' })
   Panel = (await server.ssrLoadModule('/src/JournalPanel.jsx')).default
+  Extension = (await server.ssrLoadModule('/src/ExtensionApp.jsx')).default
   api = (await server.ssrLoadModule('/src/api/client.js')).extApi
   useTheme = (await server.ssrLoadModule('/src/useTheme.js')).default
 })
@@ -37,10 +38,67 @@ test('renders code-free explanation and labelled verification', async () => {
 })
 
 test('draft entries remain visible with pending fix instead of an empty list', async () => {
-  api.journal = async () => [{ ...sample, how_found: '', how_fixed: '', takeaway: '', outcome: 'in_progress' }]
+  api.journal = async () => [{ ...sample, how_found: '', how_fixed: '', takeaway: '', outcome: 'in_progress', can_generate: true,
+    pending_reason: 'The tutor replied without revision notes. Saved code is available.' }]
   await mount()
   assert.match(document.body.textContent, /Set Mismatch/)
-  assert.match(document.body.textContent, /Pending: analyze the changed code/)
+  assert.match(document.body.textContent, /tutor replied without revision notes/)
+  assert.ok(button('Generate notes'))
+})
+
+test('Generate notes repairs an existing blank entry', async () => {
+  let row = { ...sample, how_found: '', how_fixed: '', takeaway: '', can_generate: true }
+  let calls = 0
+  api.journal = async () => [row]
+  api.generateJournal = async (id) => { calls++; assert.equal(id, 1); row = { ...sample, can_generate: false }; return row }
+  await mount()
+  const generate = button('Generate notes')
+  await act(async () => { Simulate.click(generate); Simulate.click(generate) })
+  assert.equal(calls, 1)
+  assert.match(document.body.textContent, /duplicate first/)
+  assert.equal(button('Generate notes'), undefined)
+})
+
+test('Generate notes failure keeps the entry and shows an actionable error', async () => {
+  api.journal = async () => [{ ...sample, how_found: '', how_fixed: '', takeaway: '', can_generate: true }]
+  api.generateJournal = async () => { throw new Error('Provider usage limit reached. Try later.') }
+  await mount()
+  await act(async () => Simulate.click(button('Generate notes')))
+  assert.match(document.querySelector('[role="alert"]').textContent, /usage limit/)
+  assert.equal(button('Generate notes').disabled, false)
+})
+
+test('missing baseline explains the limitation instead of offering unsupported generation', async () => {
+  api.journal = async () => [{ ...sample, how_found: '', how_fixed: '', takeaway: '', can_generate: false,
+    pending_reason: 'A different earlier version is missing. The fix cannot be inferred from accepted code alone.' }]
+  await mount()
+  assert.match(document.body.textContent, /earlier version is missing/)
+  assert.equal(button('Generate notes'), undefined)
+})
+
+test('accepted analysis automatically requests missing notes without blocking chat', async () => {
+  const event = { addListener() {}, removeListener() {} }
+  globalThis.chrome = {
+    storage: { local: { get: async () => ({}), set: async () => {} } },
+    tabs: { query: async () => [{ id: 1, url: 'https://leetcode.com/problems/binary-search/' }], onActivated: event, onUpdated: event },
+    windows: { onFocusChanged: event }, scripting: { executeScript: async () => [{ frameId: 0, result: {
+      ok: true, problem: { slug: 'binary-search', title: 'Binary Search' }, code: 'corrected version', language: 'python3',
+      submission: { status: 'accepted', source: 'page', kind: 'submit' }, missing: [],
+    } }] },
+  }
+  api.sessionBySlug = async () => null
+  api.analyze = async () => ({ session_id: 1, state: 'SOLVED', verification: 'verified_accepted',
+    journal_id: 1, journal_needs_generation: true,
+    tutor: { message: 'Your submission was accepted.', response_type: 'question', reasoning_stage: 'reflect' } })
+  let finish, calls = 0
+  api.generateJournal = (id) => { calls++; assert.equal(id, 1); return new Promise((resolve) => { finish = resolve }) }
+  await mount(Extension)
+  await act(async () => Simulate.click(document.querySelector('button.analyze')))
+  assert.equal(calls, 1)
+  assert.match(document.body.textContent, /Your submission was accepted/)
+  assert.ok(document.querySelector('textarea'))
+  await act(async () => finish(sample))
+  assert.match(document.body.textContent, /Revision notes saved in My Mistakes/)
 })
 
 test('revision mode hides the fix until reveal', async () => {
