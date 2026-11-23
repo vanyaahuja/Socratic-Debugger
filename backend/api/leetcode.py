@@ -39,6 +39,7 @@ from services.progress_service import (
     record_mistake, record_outcome, resolve_session_mistakes, should_record_mistake,
 )
 from services.tutor_service import get_leetcode_hint, get_revision_response
+from services.journal_service import begin_turn, update_notes
 
 router = APIRouter(prefix="/ext", tags=["extension"])
 
@@ -203,6 +204,17 @@ def _tutor_turn(db: DBSession, user: User, session: SessionModel, problem: Probl
                 code_changed: bool, request_explanation: bool, user_message: str | None,
                 escalate: bool, missing: list[str], new_attempt: bool):
     verified = verdict == "accepted" and source == "page" and kind == "submit"
+    journal = begin_turn(db, user.id, problem.id, verdict, source, kind)
+    baseline = prev if prev is not None and prev.id != attempt.id and prev.verdict != "accepted" else None
+    if baseline is None:
+        # A retry of an already-captured Accepted attempt must still be able to
+        # summarize the retained earlier version after a provider outage.
+        baseline = db.query(Attempt).filter(Attempt.session_id == session.id, Attempt.id < attempt.id,
+            Attempt.submitted_code != "", or_(Attempt.verdict.is_(None), Attempt.verdict != "accepted")) \
+            .order_by(Attempt.id.desc()).first()
+    previous_code = baseline.submitted_code if baseline is not None else None
+    may_explain_fix = bool(previous_code and previous_code != code and verdict == "accepted"
+                           and (verified or source == "user_reported") and user_message is None)
     # An unverified "accepted" must not unlock the Accepted-only transfer check.
     ladder_verdict = verdict if (verdict != "accepted" or verified) else "unknown"
     if verdict == "accepted" and not verified:
@@ -218,6 +230,8 @@ def _tutor_turn(db: DBSession, user: User, session: SessionModel, problem: Probl
         hint_level=level, verdict=ladder_verdict, verdict_source=source, verdict_kind=kind,
         feedback=feedback, has_failing_detail=_failing_detail(feedback),
         problem_title=problem.title, statement=statement, language=language, code=code,
+        previous_code=previous_code, may_explain_fix=may_explain_fix,
+        previous_verdict=baseline.verdict if baseline is not None else None,
         testcases=(f"{passed}/{total} passed" if passed is not None and total else None),
         previous_attempt=("first analysis in this session" if prev is None else
                           f"code {'edited' if code_changed else 'UNCHANGED'} since the previous attempt "
@@ -225,6 +239,12 @@ def _tutor_turn(db: DBSession, user: User, session: SessionModel, problem: Probl
         history=_history(db, session.id), user_message=user_message,
         request_explanation=request_explanation,
         profile_lines=patterns_for_prompt(patterns, ladder_verdict), missing_context=missing)
+    comparison_uncertain = bool(baseline is None or baseline.verdict_source != "page" or
+        baseline.verdict not in ("wrong_answer", "compile_error", "runtime_error", "time_limit_exceeded", "memory_limit_exceeded") or
+        len(previous_code or "") > 12000 or len(code) > 12000)
+    if user_message is None:
+        update_notes(db, journal, hint, previous_code=previous_code, code=code,
+                     may_explain_fix=may_explain_fix, comparison_uncertain=comparison_uncertain)
 
     interaction = add_tutor_interaction(db, attempt_id=attempt.id, hint_level=hint.hint_level, question=hint.message)
     interaction.response_type = hint.response_type
@@ -468,6 +488,8 @@ def summary(user: User = Depends(current_user), db: DBSession = Depends(get_db))
 def delete_history(user: User = Depends(current_user), db: DBSession = Depends(get_db)):
     """Delete everything stored about this profile (the profile row itself stays
     so the extension's token keeps working)."""
+    from models import RevisionJournal
+    db.query(RevisionJournal).filter_by(user_id=user.id).delete(synchronize_session=False)
     session_ids = [i for (i,) in db.query(SessionModel.id).filter(SessionModel.user_id == user.id)]
     attempt_ids = ([i for (i,) in db.query(Attempt.id).filter(Attempt.session_id.in_(session_ids))]
                    if session_ids else [])

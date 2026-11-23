@@ -1,0 +1,93 @@
+/* Palette: #131b2b · #2f4a63 · #5b91a3 · #cfeae0. No remote fonts/assets. */
+body { margin: 0; }
+.extension-app { --bg:#f4f8f7; --surface:#fff; --surface-2:#eaf3f0; --text:#131b2b; --muted:#526578; --border:#cddedb; --accent:#2f4a63; --on-accent:#fff; --mint:#cfeae0; --teal:#5b91a3; --error:#992f39; color-scheme:light; background:var(--bg); color:var(--text); font:14px/1.55 'Segoe UI',system-ui,sans-serif; min-height:100dvh; box-sizing:border-box; }
+.extension-app[data-theme="dark"] { --bg:#131b2b; --surface:#1b293b; --surface-2:#253c50; --text:#edf6f2; --muted:#aec5cf; --border:#3c566d; --accent:#cfeae0; --on-accent:#131b2b; --error:#ffb2b9; color-scheme:dark; }
+.extension-app *, .extension-app *::before, .extension-app *::after { box-sizing:border-box; }
+.extension-app button, .extension-app input, .extension-app textarea, .extension-app select { font:inherit; }
+.extension-app button { border:1px solid var(--border); border-radius:9px; padding:8px 12px; background:var(--surface); color:var(--text); cursor:pointer; line-height:1.3; transition:background .15s,border-color .15s; }
+.extension-app button:hover:not(:disabled) { background:var(--surface-2); border-color:var(--teal); }
+.extension-app button:disabled { opacity:.5; cursor:not-allowed; }
+.extension-app :is(button,a,input,textarea,select,summary):focus-visible { outline:3px solid var(--teal); outline-offset:3px; }
+.extension-app .primary { background:var(--accent); color:var(--on-accent); border-color:transparent; font-weight:650; }
+.extension-app .primary:hover:not(:disabled) { background:var(--accent); filter:brightness(.94); }
+.extension-app input:not([type="checkbox"]), .extension-app textarea, .extension-app select { width:100%; min-width:0; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:9px; padding:10px 12px; }
+.extension-app input::placeholder, .extension-app textarea::placeholder { color:var(--muted); opacity:1; }
+.extension-app textarea { resize:vertical; min-height:85px; }
+.extension-app a { color:var(--accent); text-underline-offset:3px; }
+.extension-app h1,.extension-app h2,.extension-app h3,.extension-app h4,.extension-app p { margin:0; }
+.extension-app h1 { font-size:18px; letter-spacing:-.45px; font-weight:700; }
+.extension-app h2 { font-size:23px; line-height:1.3; letter-spacing:-.6px; }
+.extension-app h3 { font-size:16px; line-height:1.4; }
+.extension-app .eyebrow { font-size:10px; font-weight:750; letter-spacing:1.8px; color:var(--muted); margin-bottom:5px; }
+.extension-app .muted { color:var(--muted); }
+.extension-app .app-header { padding:18px 18px 0; background:var(--surface); border-bottom:1px solid var(--border); }
+.extension-app .brand-row,.extension-app .section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.extension-app .brand { display:flex; align-items:center; gap:10px; }
+.extension-app .brand-mark { display:grid; place-items:center; width:37px; height:37px; border-radius:12px; color:#131b2b; background:#cfeae0; font-size:24px; font-weight:600; }
+.extension-app .brand-caption { font-size:11px; color:var(--muted); }
+.extension-app .theme-toggle { width:36px; height:36px; padding:0; font-size:19px; }
+.extension-app .main-tabs { display:flex; gap:22px; margin-top:19px; }
+.extension-app .main-tabs button { border:0; border-radius:0; padding:0 1px 12px; background:none; color:var(--muted); border-bottom:3px solid transparent; font-weight:650; }
+.extension-app .main-tabs button[aria-selected="true"] { color:var(--text); border-bottom-color:var(--teal); }
+.extension-app .app-content { padding:20px 16px 24px; max-width:760px; margin:auto; }
+.extension-app .problem-card { padding:17px; border:1px solid var(--border); border-radius:14px; background:var(--surface); margin-bottom:12px; }
+.extension-app .problem-card h2 { font-size:19px; margin-bottom:9px; overflow-wrap:anywhere; }
+.extension-app .badges { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.extension-app .badge { font-size:11px; line-height:1.4; padding:4px 8px; border-radius:6px; background:var(--surface-2); color:var(--muted); }
+.extension-app .badge.success { color:var(--on-accent); background:var(--accent); }
+.extension-app .analyze { width:100%; display:flex; justify-content:space-between; align-items:center; text-align:left; padding:13px 15px; border-radius:11px; margin-bottom:9px; }
+.extension-app .button-row { display:flex; flex-wrap:wrap; gap:7px; }
+.extension-app .secondary-actions { display:flex; flex-wrap:wrap; gap:7px; }
+.extension-app .secondary-actions button { font-size:12px; padding:8px 10px; }
+.extension-app .notice { font-size:12px; margin:11px 0; padding:10px 12px; background:var(--surface-2); border-left:3px solid var(--teal); border-radius:5px; overflow-wrap:anywhere; }
+.extension-app .notice.error { color:var(--error); border-color:var(--error); }
+.extension-app .notice button { margin-left:8px; }
+.extension-app details { color:var(--muted); font-size:12px; }
+.extension-app summary { cursor:pointer; padding:9px 0; }
+.extension-app .context-preview { margin:10px 0; padding:0 12px; border:1px solid var(--border); border-radius:9px; }
+.extension-app .context-preview ul { padding-left:17px; }
+.extension-app pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 ui-monospace,monospace; }
+.extension-app .tutor-card { margin-top:23px; }
+.extension-app .chat-heading { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+.extension-app .chat-heading .status-dot { width:7px; height:7px; border-radius:50%; background:var(--teal); }
+.extension-app .chat-heading small { color:var(--muted); font-size:11px; margin-left:auto; }
+.extension-app .chat-log { display:flex; flex-direction:column; gap:13px; max-height:52dvh; overflow:auto; overscroll-behavior:contain; padding:2px 3px 14px; }
+.extension-app .message { max-width:94%; align-self:flex-start; padding:13px 14px; background:var(--surface); border:1px solid var(--border); border-radius:12px 12px 12px 3px; overflow-wrap:anywhere; }
+.extension-app .message.student { align-self:flex-end; border-radius:12px 12px 3px 12px; background:var(--surface-2); }
+.extension-app .message-label { font-size:10px; text-transform:uppercase; letter-spacing:1.2px; font-weight:750; color:var(--muted); margin-bottom:5px; }
+.extension-app .message-text { white-space:pre-wrap; }
+.extension-app .message details { margin-top:8px; border-top:1px solid var(--border); }
+.extension-app .message details p { white-space:pre-wrap; }
+.extension-app .composer { margin-top:10px; padding:11px; background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+.extension-app .composer textarea { background:transparent; border:0; padding:2px; min-height:78px; }
+.extension-app .composer-footer { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
+.extension-app .composer-footer span { font-size:10px; color:var(--muted); }
+.extension-app .analyze-again { margin-top:10px; width:100%; font-size:12px; }
+.extension-app .thinking { padding:9px; font-size:12px; color:var(--muted); }
+.extension-app .privacy { margin-top:24px; border-top:1px solid var(--border); padding-top:7px; }
+.extension-app .privacy p { margin:8px 0; }
+.extension-app .privacy button { margin:8px 0; font-size:12px; color:var(--error); }
+.extension-app .intro { font-size:13px; margin:10px 0 19px; }
+.extension-app .filter-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:13px; }
+.extension-app .filter-tabs button { font-size:11px; border-radius:7px; padding:7px 9px; }
+.extension-app .filter-tabs .selected { color:var(--on-accent); background:var(--accent); border-color:transparent; }
+.extension-app .journal-toolbar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:11px 0 16px; font-size:11px; }
+.extension-app .journal-toolbar button { padding:5px 8px; font-size:11px; }
+.extension-app .checkbox { display:flex; align-items:center; gap:6px; color:var(--muted); }
+.extension-app input[type="checkbox"] { accent-color:var(--teal); }
+.extension-app .journal-card { border:1px solid var(--border); border-radius:14px; background:var(--surface); padding:18px; margin-bottom:14px; }
+.extension-app .journal-card .badges { margin:10px 0 17px; }
+.extension-app .note-section { margin-top:15px; }
+.extension-app .note-section h4,.extension-app .takeaway h4 { font-size:11px; letter-spacing:.35px; margin-bottom:5px; color:var(--muted); font-weight:650; }
+.extension-app .note-section p,.extension-app .takeaway p { font-size:13px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.extension-app .takeaway { margin-top:17px; border-left:3px solid var(--teal); padding:10px 12px; background:var(--surface-2); border-radius:4px; }
+.extension-app .card-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; border-top:1px solid var(--border); padding-top:12px; margin-top:17px; font-size:11px; }
+.extension-app .card-actions button { border:0; padding:0; background:none; font-size:11px; color:var(--muted); }
+.extension-app .journal-editor label { display:block; font-size:12px; margin:10px 0; }
+.extension-app .journal-editor textarea { margin-top:6px; }
+.extension-app .empty-state { padding:35px 18px; text-align:center; border:1px dashed var(--border); border-radius:14px; }
+.extension-app .empty-state p { font-size:13px; color:var(--muted); margin-top:9px; }
+.extension-app .empty-symbol { color:var(--teal); font-size:30px; margin-bottom:10px; }
+.extension-app .reveal-button { width:100%; margin-top:10px; font-size:12px; }
+@media (max-width:320px) { .extension-app .app-content { padding:15px 10px; } .extension-app .app-header { padding:14px 12px 0; } .extension-app .journal-card { padding:13px; } .extension-app .composer-footer span { max-width:125px; } }
+@media (prefers-reduced-motion:reduce) { .extension-app * { transition:none!important; } }

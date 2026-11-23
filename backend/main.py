@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database.db import Base, engine, ensure_columns
 import models  # noqa: F401 -- import so Base.metadata knows about all tables
-from api import problems, sessions, attempts, tutor, users, leetcode
+from api import problems, sessions, attempts, tutor, users, leetcode, journal
 
 app = FastAPI(title="Socratic Debugger")
 
@@ -36,6 +36,7 @@ app.include_router(attempts.router)
 app.include_router(tutor.router)
 app.include_router(users.router)
 app.include_router(leetcode.router)
+app.include_router(journal.router)
 
 
 @app.get("/health")

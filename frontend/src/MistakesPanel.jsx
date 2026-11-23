@@ -13,7 +13,7 @@ const CATEGORIES = ['logic_error', 'edge_case', 'boundary_indexing', 'wrong_algo
 const STATUS = { unresolved: 'Needs revision', fixed_with_guidance: 'Fixed with guidance', fixed_independently: 'Fixed independently' }
 const EVIDENCE = { single_observation: 'single observation', suspected_recurring: 'suspected recurring weakness', supported_pattern: 'supported pattern' }
 const pretty = (s) => s.replace(/_/g, ' ')
-const tag = { fontSize: '11px', background: '#eef2ff', borderRadius: '4px', padding: '1px 6px', marginRight: '4px' }
+const tag = { fontSize: '11px', background: 'var(--surface-2)', borderRadius: '4px', padding: '1px 6px', marginRight: '4px' }
 
 function MistakeCard({ m, revision, onChanged }) {
   const [open, setOpen] = useState(false)
@@ -32,7 +32,7 @@ function MistakeCard({ m, revision, onChanged }) {
   }
 
   return (
-    <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '8px', marginBottom: '8px' }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '8px', marginBottom: '8px' }}>
       <div onClick={() => !revision && setOpen(!open)} style={{ cursor: revision ? 'default' : 'pointer' }}>
         <strong>{m.problem_number ? `${m.problem_number}. ` : ''}{m.problem_title}</strong>
         <div style={{ marginTop: '4px' }}>
@@ -42,7 +42,7 @@ function MistakeCard({ m, revision, onChanged }) {
           {m.marked_for_revision && <span style={tag}>marked</span>}
           {m.reviewed && <span style={tag}>reviewed</span>}
         </div>
-        {!showAll && !revision && <div style={{ color: '#444', marginTop: '4px' }}>{m.what_went_wrong}</div>}
+        {!showAll && !revision && <div style={{ color: 'var(--text)', marginTop: '4px' }}>{m.what_went_wrong}</div>}
       </div>
 
       {revision && (
@@ -69,8 +69,8 @@ function MistakeCard({ m, revision, onChanged }) {
           <div><strong>Why it happened{m.is_hypothesis ? ' (hypothesis)' : ''}:</strong> {m.why_happened}</div>
           <div><strong>Revision hint:</strong> {m.revision_hint}</div>
           <div><strong>Concept to revise:</strong> {m.concept}</div>
-          <div style={{ color: '#666' }}><strong>Evidence:</strong> {m.evidence}</div>
-          <div style={{ color: '#666' }}>Seen {m.occurrences}× · last {new Date(m.last_seen).toLocaleDateString()}</div>
+          <div style={{ color: 'var(--muted)' }}><strong>Evidence:</strong> {m.evidence}</div>
+          <div style={{ color: 'var(--muted)' }}>Seen {m.occurrences}× · last {new Date(m.last_seen).toLocaleDateString()}</div>
           <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             <button onClick={() => ask('hint')} disabled={busy}>Another Socratic hint</button>
             <button onClick={() => ask('practice')} disabled={busy}>Practice question</button>
@@ -78,7 +78,7 @@ function MistakeCard({ m, revision, onChanged }) {
         </div>
       )}
 
-      {extra && <div style={{ marginTop: '6px', background: '#f0f0f0', borderRadius: '6px', padding: '6px' }}>{extra}</div>}
+      {extra && <div style={{ marginTop: '6px', background: 'var(--surface-2)', borderRadius: '6px', padding: '6px' }}>{extra}</div>}
 
       <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '12px' }}>
         {m.problem_url && <a href={m.problem_url} target="_blank" rel="noreferrer">Open on LeetCode</a>}
@@ -134,28 +134,28 @@ export default function MistakesPanel() {
         </div>
       )}
 
-      {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
+      {error && <p style={{ color: 'var(--error)' }}>{error}</p>}
 
       {list && items.length === 0 && !error && (
-        <p style={{ color: '#666' }}>Nothing here yet. Entries appear after a failed submission is analyzed with enough evidence.</p>
+        <p style={{ color: 'var(--muted)' }}>Nothing here yet. Entries appear after a failed submission is analyzed with enough evidence.</p>
       )}
       {list && items.map((m) => <MistakeCard key={m.id} m={m} revision={revision} onChanged={load} />)}
 
       {view === 'patterns' && (
         <>
-          <p style={{ color: '#666' }}>
+          <p style={{ color: 'var(--muted)' }}>
             Patterns show where mistakes were observed across different problems. They are evidence about habits, not a
             measure of ability.
           </p>
-          {patterns.length === 0 && <p style={{ color: '#666' }}>No patterns yet.</p>}
+          {patterns.length === 0 && <p style={{ color: 'var(--muted)' }}>No patterns yet.</p>}
           {patterns.map((p) => (
-            <div key={p.category} style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '8px', marginBottom: '8px' }}>
+            <div key={p.category} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '8px', marginBottom: '8px' }}>
               <strong>{pretty(p.category)}</strong> <span style={tag}>{EVIDENCE[p.evidence_level]}</span>
               <div>Seen on {p.distinct_problems} problem(s) · trend: {pretty(p.trend)}</div>
-              <div style={{ color: '#666' }}>
+              <div style={{ color: 'var(--muted)' }}>
                 {p.unresolved} unresolved · {p.fixed_with_guidance} fixed with guidance · {p.fixed_independently} fixed independently
               </div>
-              <div style={{ color: '#666' }}>Concepts: {p.concepts.join(', ')}</div>
+              <div style={{ color: 'var(--muted)' }}>Concepts: {p.concepts.join(', ')}</div>
             </div>
           ))}
         </>
@@ -170,14 +170,14 @@ export default function MistakesPanel() {
           {Object.entries(summary.by_category).map(([c, n]) => (
             <div key={c} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ width: '140px' }}>{pretty(c)}</span>
-              <div style={{ background: '#2563eb', height: '10px', width: `${Math.min(100, n * 20)}px` }} />
+              <div style={{ background: 'var(--teal)', height: '10px', width: `${Math.min(100, n * 20)}px` }} />
               <span>{n}</span>
             </div>
           ))}
           <h4>By status</h4>
           {Object.entries(summary.by_status).map(([s, n]) => <div key={s}>{STATUS[s]}: {n}</div>)}
           <h4>Last weeks</h4>
-          {summary.weekly.length === 0 && <div style={{ color: '#666' }}>No data yet.</div>}
+          {summary.weekly.length === 0 && <div style={{ color: 'var(--muted)' }}>No data yet.</div>}
           {summary.weekly.map((w) => (
             <div key={w.week}>Week of {w.week}: {w.observed} observed · {w.fixed_independently} fixed independently · {w.fixed_with_guidance} with guidance</div>
           ))}

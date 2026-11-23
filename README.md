@@ -22,6 +22,17 @@ FastAPI  /ext/*   (token auth, ownership checks, rate limits, validated models)
    └─ SQLite (existing models + MistakeObservation)
 ```
 
+## Revision journal and themes
+
+My Mistakes now saves a draft for every analyzed problem, independently of the
+legacy diagnosis confidence threshold. When an earlier version and changed,
+accepted code are available, the tutor can infer short, code-free revision notes
+in simple language. Notes are labelled as inferred, editable, searchable and
+exportable. Missing evidence stays pending. Earlier mistake/profile views are
+retained. Dark and light modes use the supplied navy/slate/teal/mint palette and
+remember the selected preference. See [JOURNAL_AND_THEMES.md](JOURNAL_AND_THEMES.md)
+for the implementation, retention details, limitations and update steps.
+
 ## Setup (Windows PowerShell shown; macOS/Linux equivalents are the obvious ones)
 
 **1. Backend**

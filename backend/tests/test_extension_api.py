@@ -24,7 +24,7 @@ import api.leetcode as lc
 import services.tutor_service as ts
 from database.db import Base, SessionLocal, engine, ensure_columns
 from main import app
-from models import Attempt, MistakeObservation, Session as SessionModel, TutorInteraction
+from models import Attempt, MistakeObservation, Session as SessionModel, TutorInteraction, RevisionJournal
 from services import llm_provider as lp
 
 TOKEN_A = "a" * 40
@@ -338,6 +338,106 @@ def test_zero_passed_is_retained_in_followup_prompt(client, fresh):
     first = client.post('/ext/analyze', json=payload, headers=H()).json()
     client.post(f"/ext/session/{first['session_id']}/reply", json={"message": "I am stuck"}, headers=H())
     assert "0/10 passed" in fresh.prompts[-1]
+
+
+def pointers(**override):
+    return {"how_found": "Tracing the failing example showed the numbers in the wrong order.",
+            "how_fixed": "Kept the two values separate, then put the duplicate first.",
+            "takeaway": "Check the required order, not just the values.", "uncertain": True, **override}
+
+
+def test_journal_saves_draft_even_when_provider_fails(client, fresh):
+    fresh.reply = RuntimeError("provider down")
+    first = analyze(client).json()
+    rows = client.get('/ext/journal', headers=H()).json()
+    assert len(rows) == 1 and rows[0]['how_fixed'] == ''
+    assert rows[0]['outcome'] == 'in_progress'
+    assert analyze(client, session_id=first['session_id']).status_code == 503
+    assert count(RevisionJournal) == 1
+
+
+def test_journal_does_not_require_medium_confidence(client, fresh):
+    fresh.reply = tutor(diagnosis={**tutor()['diagnosis'], 'confidence': 'low'}, journal_note=pointers())
+    analyze(client)
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['how_found'] and row['how_fixed'] == ''
+    assert count(MistakeObservation) == 0
+
+
+def test_journal_infers_fix_from_captured_code_change_after_accepted(client, fresh):
+    first = analyze(client, code='return wrong_answer').json()
+    fresh.reply = tutor(diagnosis=None, journal_note=pointers())
+    accepted = analyze(client, session_id=first['session_id'], code='return corrected_answer', status='accepted').json()
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['how_fixed'] == pointers()['how_fixed']
+    assert row['outcome'] == 'verified_accepted' and row['uncertain'] is True
+    assert 'return wrong_answer' in fresh.prompts[-1] and 'return corrected_answer' in fresh.prompts[-1]
+    assert 'may_explain_fix: yes' in fresh.prompts[-1]
+    assert 'return wrong_answer' not in json.dumps(row) and 'return corrected_answer' not in json.dumps(row)
+    assert count(RevisionJournal) == 1
+
+
+@pytest.mark.parametrize('same_code', [True, False])
+def test_journal_missing_or_unchanged_baseline_never_invents_fix(client, fresh, same_code):
+    sid = analyze(client, code='unchanged').json()['session_id'] if same_code else None
+    fresh.reply = tutor(journal_note=pointers(), diagnosis=None)
+    analyze(client, code='unchanged', session_id=sid, status='accepted')
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['how_fixed'] == ''
+    assert row['outcome'] == 'verified_accepted'
+
+
+def test_journal_user_report_is_not_verified(client, fresh):
+    sid = analyze(client, code='first version').json()['session_id']
+    fresh.reply = tutor(journal_note=pointers(), diagnosis=None)
+    analyze(client, code='changed version', session_id=sid, status='accepted', source='user_reported', kind='none')
+    assert client.get('/ext/journal', headers=H()).json()[0]['outcome'] == 'user_reported'
+
+
+def test_journal_drops_source_snippets_and_protects_edits(client, fresh):
+    sid = analyze(client, code='return wrong_answer').json()['session_id']
+    fresh.reply = tutor(journal_note=pointers(how_fixed='Changed it to `return corrected_answer`.'), diagnosis=None)
+    analyze(client, code='return corrected_answer', session_id=sid, status='accepted')
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['how_fixed'] == ''
+    endpoint = f"/ext/journal/{row['id']}"
+    assert client.patch(endpoint, headers=H(), json={'how_fixed': '```python\nreturn answer\n```'}).status_code == 422
+    assert client.patch(endpoint, headers=H(), json={'how_fixed': 'I checked the output order.', 'reviewed': True}).status_code == 200
+    fresh.reply = tutor(journal_note=pointers())
+    analyze(client, code='a different final version', session_id=sid, status='accepted')
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['edited'] and row['how_fixed'] == 'I checked the output order.'
+    assert client.patch(endpoint, headers=H(TOKEN_B), json={'reviewed': True}).status_code == 404
+    assert client.get('/ext/journal', headers=H(TOKEN_B)).json() == []
+
+
+def test_journal_backfills_history_and_is_deleted_with_it(client):
+    analyze(client)
+    with SessionLocal() as db:
+        db.query(RevisionJournal).delete(); db.commit()
+    assert len(client.get('/ext/journal', headers=H()).json()) == 1
+    client.delete('/ext/history', headers=H())
+    assert client.get('/ext/journal', headers=H()).json() == []
+
+
+def test_accepted_outcome_survives_failed_summary(client, fresh):
+    sid = analyze(client, code='bad version').json()['session_id']
+    fresh.reply = RuntimeError('provider down')
+    assert analyze(client, code='good version', session_id=sid, status='accepted').status_code == 503
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['outcome'] == 'verified_accepted' and row['how_fixed'] == ''
+    fresh.reply = tutor(journal_note=pointers(), diagnosis=None)
+    assert analyze(client, code='good version', session_id=sid, status='accepted').status_code == 200
+    assert client.get('/ext/journal', headers=H()).json()[0]['how_fixed'] == pointers()['how_fixed']
+    assert 'Earlier captured version for comparison (verdict: wrong_answer' in fresh.prompts[-1]
+
+
+def test_unclear_prior_verdict_can_infer_change_but_stays_uncertain(client, fresh):
+    sid = analyze(client, code='old code', status='unknown', source='none', kind='none').json()['session_id']
+    fresh.reply = tutor(journal_note=pointers(uncertain=False), diagnosis=None)
+    analyze(client, code='changed code', session_id=sid, status='accepted')
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['how_fixed'] and row['uncertain'] is True
 
 
 def test_session_restored_by_slug(client):
