@@ -440,6 +440,132 @@ def test_unclear_prior_verdict_can_infer_change_but_stays_uncertain(client, fres
     assert row['how_fixed'] and row['uncertain'] is True
 
 
+def saved_comparison(client):
+    first = analyze(client, code='earlier version').json()
+    accepted = analyze(client, code='corrected version', session_id=first['session_id'], status='accepted').json()
+    entry = client.get('/ext/journal', headers=H()).json()[0]
+    assert accepted['journal_id'] == entry['id'] and accepted['journal_needs_generation']
+    assert entry['can_generate'] and entry['notes_status'] == 'model_omitted'
+    return entry, first['session_id']
+
+
+def generated_note(**over):
+    return {**pointers(), 'fix_supported': True, **over}
+
+
+def test_regenerate_existing_empty_journal_with_real_router(client, monkeypatch):
+    entry, _ = saved_comparison(client)
+    monkeypatch.setenv('LLM_PRIMARY_PROVIDER', 'openai_compatible')
+    monkeypatch.setenv('LLM_PRIMARY_BASE_URL', 'https://notes.example/v1')
+    monkeypatch.setenv('LLM_PRIMARY_MODEL', 'test-notes-model')
+    monkeypatch.setenv('LLM_PRIMARY_API_KEY', 'test-notes-key')
+    monkeypatch.setenv('LLM_BACKUP_PROVIDER', '')
+    calls = []
+    def handler(req):
+        calls.append(req)
+        body = json.loads(req.content)
+        assert 'earlier version' in body['messages'][0]['content']
+        assert 'corrected version' in body['messages'][0]['content']
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(generated_note())}}]})
+    import asyncio
+    monkeypatch.setattr(lp, 'generate', lambda prompt, validator=None: asyncio.run(
+        lp.generate_async(prompt, validator, transport=httpx.MockTransport(handler))))
+    before = count(TutorInteraction)
+    result = client.post(f"/ext/journal/{entry['id']}/generate", headers=H())
+    assert result.status_code == 200, result.text
+    assert result.json()['how_fixed'] == pointers()['how_fixed']
+    assert result.json()['notes_status'] == 'ready'
+    assert 'earlier version' not in result.text and 'corrected version' not in result.text
+    assert count(TutorInteraction) == before
+    assert client.post(f"/ext/journal/{entry['id']}/generate", headers=H()).status_code == 200
+    assert len(calls) == 1  # Already complete: no duplicate provider charge.
+
+
+def test_notes_failure_is_explained_and_retryable(client, monkeypatch):
+    entry, _ = saved_comparison(client)
+    def fail(*args, **kwargs): raise lp.LLMUnavailable('rate_limited')
+    monkeypatch.setattr(lp, 'generate', fail)
+    assert client.post(f"/ext/journal/{entry['id']}/generate", headers=H()).status_code == 503
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['notes_status'] == 'rate_limited' and row['can_generate']
+    assert 'usage limit' in row['pending_reason']
+    assert row['how_fixed'] == ''
+
+
+def test_no_baseline_is_distinguished_from_model_omission(client, monkeypatch):
+    analyze(client, code='only accepted code', status='accepted')
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['notes_status'] == 'missing_baseline' and not row['can_generate']
+    monkeypatch.setattr(lp, 'generate', lambda *args, **kwargs: pytest.fail('No evidence; do not call AI'))
+    assert client.post(f"/ext/journal/{row['id']}/generate", headers=H()).status_code == 409
+
+
+@pytest.mark.parametrize('bad_note', ['return corrected_version', ''])
+def test_notes_reject_empty_or_code_output(client, monkeypatch, bad_note):
+    entry, _ = saved_comparison(client)
+    monkeypatch.setattr(lp, 'generate', lambda *args, **kwargs: json.dumps(generated_note(how_fixed=bad_note)))
+    assert client.post(f"/ext/journal/{entry['id']}/generate", headers=H()).status_code == 503
+    row = client.get('/ext/journal', headers=H()).json()[0]
+    assert row['how_fixed'] == '' and row['notes_status'] == 'invalid_output'
+
+
+def test_notes_do_not_invent_a_fix_when_comparison_is_inconclusive(client, monkeypatch):
+    entry, _ = saved_comparison(client)
+    monkeypatch.setattr(lp, 'generate', lambda *args, **kwargs: json.dumps(generated_note(fix_supported=False, how_fixed='')))
+    result = client.post(f"/ext/journal/{entry['id']}/generate", headers=H()).json()
+    assert result['how_found'] and result['takeaway'] and not result['how_fixed']
+    assert result['notes_status'] == 'insufficient_evidence'
+    assert not analyze(client, code='corrected version', session_id=1, status='accepted').json()['journal_needs_generation']
+
+
+def test_notes_generation_preserves_manual_edits_made_while_waiting(client, monkeypatch):
+    entry, _ = saved_comparison(client)
+    def during_request(*args, **kwargs):
+        with SessionLocal() as db:
+            row = db.get(RevisionJournal, entry['id']); row.how_fixed = 'My own explanation.'
+            row.edited = True; row.generation_token = None; db.commit()
+        return json.dumps(generated_note())
+    monkeypatch.setattr(lp, 'generate', during_request)
+    assert client.post(f"/ext/journal/{entry['id']}/generate", headers=H()).status_code == 409
+    assert client.get('/ext/journal', headers=H()).json()[0]['how_fixed'] == 'My own explanation.'
+
+
+def test_notes_generation_is_locked_and_owned(client, monkeypatch):
+    entry, _ = saved_comparison(client)
+    attempts = []
+    def during_request(*args, **kwargs):
+        attempts.append(client.post(f"/ext/journal/{entry['id']}/generate", headers=H()).status_code)
+        return json.dumps(generated_note())
+    monkeypatch.setattr(lp, 'generate', during_request)
+    assert client.post(f"/ext/journal/{entry['id']}/generate", headers=H(TOKEN_B)).status_code == 404
+    assert client.post(f"/ext/journal/{entry['id']}/generate", headers=H()).status_code == 200
+    assert attempts == [409]
+
+
+def test_notes_do_not_overwrite_a_newer_code_analysis(client, monkeypatch):
+    entry, sid = saved_comparison(client)
+    def during_request(*args, **kwargs):
+        with SessionLocal() as db:
+            db.add(Attempt(session_id=sid, attempt_number=3, language='python3', submitted_code='newer accepted version',
+                verdict='accepted', verdict_source='page', verdict_kind='submit'))
+            db.commit()
+        return json.dumps(generated_note())
+    monkeypatch.setattr(lp, 'generate', during_request)
+    result = client.post(f"/ext/journal/{entry['id']}/generate", headers=H())
+    assert result.status_code == 409
+    assert 'Newer code' in result.json()['detail']
+    assert client.get('/ext/journal', headers=H()).json()[0]['how_fixed'] == ''
+
+
+def test_retention_keeps_comparison_through_later_accepted_analyses(client):
+    entry, sid = saved_comparison(client)
+    analyze(client, code='accepted refinement one', session_id=sid, status='accepted')
+    analyze(client, code='accepted refinement two', session_id=sid, status='accepted')
+    with SessionLocal() as db:
+        codes = [a.submitted_code for a in db.query(Attempt).filter(Attempt.session_id == sid) if a.submitted_code]
+    assert set(codes) == {'earlier version', 'accepted refinement two'}
+
+
 def test_session_restored_by_slug(client):
     sid = analyze(client).json()["session_id"]
     v = client.get("/ext/session/by-slug/binary-search", headers=H()).json()
@@ -591,6 +717,8 @@ def test_existing_database_is_migrated_in_place(tmp_path, monkeypatch):
         c.execute(text("CREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER)"))
         c.execute(text("CREATE TABLE attempts (id INTEGER PRIMARY KEY, session_id INTEGER)"))
         c.execute(text("CREATE TABLE tutor_interactions (id INTEGER PRIMARY KEY, tutor_question TEXT)"))
+        c.execute(text("CREATE TABLE revision_journal (id INTEGER PRIMARY KEY, how_found TEXT)"))
+        c.execute(text("INSERT INTO revision_journal VALUES (1, 'Keep this note')"))
         c.execute(text("INSERT INTO tutor_interactions VALUES (1, 'Existing question')"))
         c.execute(text("INSERT INTO users VALUES (1, 'Guest', '2026-01-01')"))
         c.execute(text("INSERT INTO problems VALUES (1, 'Old problem')"))
@@ -604,3 +732,4 @@ def test_existing_database_is_migrated_in_place(tmp_path, monkeypatch):
         assert c.execute(text("SELECT name FROM users WHERE id=1")).scalar() == "Guest"
         restored = c.execute(text("SELECT tutor_question, response_type, used_fallback FROM tutor_interactions WHERE id=1")).one()
         assert restored == ("Existing question", None, 0)
+        assert c.execute(text('SELECT how_found, notes_status, generation_token FROM revision_journal WHERE id=1')).one() == ('Keep this note', 'pending', None)

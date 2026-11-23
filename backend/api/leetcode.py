@@ -39,14 +39,13 @@ from services.progress_service import (
     record_mistake, record_outcome, resolve_session_mistakes, should_record_mistake,
 )
 from services.tutor_service import get_leetcode_hint, get_revision_response
-from services.journal_service import begin_turn, update_notes
+from services.journal_service import begin_turn, update_notes, journal_state, journal_context
 
 router = APIRouter(prefix="/ext", tags=["extension"])
 
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 SESSION_REUSE_WINDOW = timedelta(hours=12)
 ANALYZING_TIMEOUT = timedelta(seconds=45)
-KEEP_CODE_FOR_LAST_N_ATTEMPTS = 2
 
 # ---- rate limiting (in-memory, per process: fine for a single local backend) ----
 ANALYZE_PER_MINUTE = 12
@@ -157,11 +156,21 @@ def _history(db: DBSession, session_id: int) -> list[tuple[str, str | None]]:
 
 
 def _prune_old_code(db: DBSession, session_id: int) -> None:
-    """Don't keep source snapshots: only the latest couple of attempts keep code."""
-    old = (db.query(Attempt).filter(Attempt.session_id == session_id)
-           .order_by(Attempt.attempt_number.desc()).offset(KEEP_CODE_FOR_LAST_N_ATTEMPTS).all())
-    for a in old:
-        a.submitted_code = ""
+    """Keep at most two snapshots, preserving the useful pre-fix comparison."""
+    attempts = db.query(Attempt).filter(Attempt.session_id == session_id).order_by(Attempt.id.desc()).all()
+    if not attempts:
+        return
+    latest = attempts[0]
+    baseline = next((a for a in attempts[1:] if a.submitted_code and a.verdict != "accepted"
+                     and a.submitted_code.strip() != latest.submitted_code.strip()), None)
+    keep = {latest.id}
+    if baseline is not None:
+        keep.add(baseline.id)
+    elif len(attempts) > 1:
+        keep.add(attempts[1].id)
+    for a in attempts:
+        if a.id not in keep:
+            a.submitted_code = ""
     db.commit()
 
 
@@ -332,7 +341,14 @@ def analyze(payload: AnalyzeRequest, user: User = Depends(current_user), db: DBS
     verification = ("verified_accepted" if verified else
                     "unverified_user_report" if sub.status == "accepted" else
                     "pending" if sub.status == "running" else "not_accepted")
-    return AnalyzeResponse(
+    from models import RevisionJournal
+    entry = db.query(RevisionJournal).filter_by(user_id=user.id, problem_id=problem.id).one()
+    state_info = journal_state(db, entry)
+    needs_notes = sub.status == "accepted" and state_info['can_generate']
+    if needs_notes and state_info['notes_status'] == 'insufficient_evidence':
+        context = journal_context(db, entry)
+        needs_notes = bool(context and context['fingerprint'] != entry.notes_fingerprint)
+    return AnalyzeResponse(journal_id=entry.id, journal_needs_generation=needs_notes,
         session_id=session.id, attempt_id=attempt.id, attempt_number=attempt.attempt_number,
         state=state, hint_level=level, tutor=hint, solved=session.solved, verification=verification,
         mistake_recorded=recorded, mistake_id=mistake_id, mistake_note=note, duplicate_attempt=duplicate)

@@ -10,6 +10,7 @@ export function JournalCard({ entry, revision, onSaved }) {
   const [draft, setDraft] = useState(entry)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const generating = useRef(false)
   useEffect(() => { if (!editing) setDraft(entry) }, [entry, editing])
   const save = async (patch) => {
     setBusy(true); setError('')
@@ -17,12 +18,25 @@ export function JournalCard({ entry, revision, onSaved }) {
     catch (e) { setError(e.message) }
     finally { setBusy(false) }
   }
+  const generate = async () => {
+    if (busy || generating.current) return
+    generating.current = true
+    setBusy(true); setError('')
+    try { onSaved(await extApi.generateJournal(entry.id)) }
+    catch (e) { setError(e.message) }
+    finally {
+      generating.current = false
+      setBusy(false)
+      window.dispatchEvent(new window.Event('socratic-journal-updated'))
+    }
+  }
   return <article className="journal-card">
     <div className="eyebrow">REVISION NOTE</div>
     <h3>{entry.problem_title}</h3>
     <div className="badges"><span className={`badge ${entry.outcome === 'verified_accepted' ? 'success' : ''}`}>{outcome[entry.outcome]}</span>
       <span className="badge">{entry.edited ? 'Edited by you' : entry.how_found || entry.how_fixed ? 'AI-inferred · check the explanation' : 'Notes pending'}</span>
       {entry.reviewed && <span className="badge">Reviewed</span>}</div>
+    {entry.pending_reason && <p className="notice" role="status">{entry.pending_reason}</p>}
     {editing ? <div className="journal-editor">
       {['how_found', 'how_fixed', 'takeaway'].map((field, i) => <label key={field}>{['How I found it', 'How I fixed it', 'Remember next time'][i]}
         <textarea value={draft[field]} maxLength={field === 'takeaway' ? 400 : 600} onChange={(e) => setDraft({ ...draft, [field]: e.target.value })} />
@@ -30,13 +44,14 @@ export function JournalCard({ entry, revision, onSaved }) {
       <div className="button-row"><button className="primary" disabled={busy} onClick={() => save({ how_found: draft.how_found, how_fixed: draft.how_fixed, takeaway: draft.takeaway })}>Save notes</button>
         <button disabled={busy} onClick={() => setEditing(false)}>Cancel</button></div>
     </div> : <>
-      <div className="note-section"><h4>How I found it</h4><p>{entry.how_found || 'A draft is saved. Analyze a failing version to help identify the clue.'}</p></div>
+      <div className="note-section"><h4>How I found it</h4><p>{entry.how_found || 'Not recorded yet.'}</p></div>
       {(!revision || reveal) ? <>
-        <div className="note-section"><h4>How I fixed it</h4><p>{entry.how_fixed || 'Pending: analyze the changed code after solving. An earlier code version is needed to infer the fix.'}</p></div>
+        <div className="note-section"><h4>How I fixed it</h4><p>{entry.how_fixed || 'Not recorded yet.'}</p></div>
         <div className="note-section"><h4>How I checked it</h4><p>{entry.outcome === 'verified_accepted' ? 'LeetCode showed an Accepted submission.' : entry.outcome === 'user_reported' ? 'You reported it solved. Acceptance has not been read from the page.' : 'Not verified yet. Submit the changed code, then analyze the visible result.'}</p></div>
-        <div className="takeaway"><h4>Remember next time</h4><p>{entry.takeaway || 'Your takeaway will appear when there is enough evidence.'}</p></div>
+        <div className="takeaway"><h4>Remember next time</h4><p>{entry.takeaway || 'Not recorded yet.'}</p></div>
       </> : <button className="reveal-button" onClick={() => setReveal(true)}>Try recalling the fix, then reveal →</button>}
       <div className="card-actions">
+        {entry.can_generate && <button disabled={busy} onClick={generate}>{generating.current ? 'Generating notes…' : 'Generate notes'}</button>}
         {entry.problem_url?.startsWith('https://leetcode.com/problems/') && <a href={entry.problem_url} target="_blank" rel="noreferrer">Open problem ↗</a>}
         <button disabled={busy} onClick={() => save({ reviewed: !entry.reviewed })}>{entry.reviewed ? 'Unmark reviewed' : 'Mark reviewed'}</button>
         <button onClick={() => setEditing(true)}>Edit notes</button>
@@ -61,7 +76,11 @@ export default function JournalPanel() {
     catch (e) { if (id === request.current) setError(e.message) }
     finally { if (id === request.current) setLoading(false) }
   }
-  useEffect(() => { load(); return () => { request.current++ } }, [])
+  useEffect(() => {
+    load()
+    window.addEventListener('socratic-journal-updated', load)
+    return () => { request.current++; window.removeEventListener('socratic-journal-updated', load) }
+  }, [])
   const shown = entries.filter((e) => (filter !== 'review' || !e.reviewed) &&
     (filter !== 'solved' || e.outcome !== 'in_progress') &&
     `${e.problem_title} ${e.how_found} ${e.how_fixed} ${e.takeaway}`.toLowerCase().includes(search.toLowerCase()))

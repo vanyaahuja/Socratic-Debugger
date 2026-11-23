@@ -97,6 +97,7 @@ const qs = (params) => {
 
 export const extApi = {
   journal: () => extRequest('/journal'),
+  generateJournal: (id) => extRequest(`/journal/${id}/generate`, { method: 'POST' }),
   patchJournal: (id, patch) => extRequest(`/journal/${id}`, { method: 'PATCH', body: patch }),
   analyze: (payload) => extRequest('/analyze', { method: 'POST', body: payload }),
   reply: (sessionId, message, statement) =>

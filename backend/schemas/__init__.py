@@ -152,6 +152,17 @@ class JournalOut(JournalPointers):
     edited: bool
     reviewed: bool
     updated_at: datetime
+    notes_status: str = "pending"
+    pending_reason: str = ""
+    can_generate: bool = False
+
+
+class JournalGeneration(BaseModel):
+    how_found: str = Field(min_length=1, max_length=600)
+    how_fixed: str = Field(max_length=600)
+    takeaway: str = Field(min_length=1, max_length=400)
+    fix_supported: bool
+    uncertain: bool = True
 
 
 class TutorHint(BaseModel):
@@ -255,6 +266,8 @@ class MistakePatch(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
+    journal_id: int | None = None
+    journal_needs_generation: bool = False
     session_id: int
     attempt_id: int
     attempt_number: int

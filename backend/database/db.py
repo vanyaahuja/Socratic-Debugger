@@ -54,6 +54,12 @@ def get_db():
 # missing these and every query touching them would fail. This is a deliberately
 # tiny stand-in for Alembic: additive ALTER TABLE only, never destructive.
 _ADDED_COLUMNS = {
+    "revision_journal": [
+        ("notes_status", "VARCHAR(32) NOT NULL DEFAULT 'pending'"),
+        ("notes_fingerprint", "VARCHAR(64)"),
+        ("generation_token", "VARCHAR(36)"),
+        ("generation_started_at", "DATETIME"),
+    ],
     "tutor_interactions": [
         ("response_type", "VARCHAR(24)"),
         ("reasoning_stage", "VARCHAR(24)"),

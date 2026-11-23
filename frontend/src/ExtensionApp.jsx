@@ -160,6 +160,16 @@ export default function ExtensionApp() {
       setVerification(res.verification)
       setMessages((prev) => [...prev, toMessage(res.tutor)])
       setInfo('Saved to your revision journal. Notes grow as you analyze code changes.')
+      if (res.journal_needs_generation && res.journal_id) {
+        setInfo('The result is saved. Preparing your revision notes…')
+        // Separate from the tutor turn: note generation cannot consume its
+        // session lease or make a successful tutoring reply fail.
+        extApi.generateJournal(res.journal_id).then(() => {
+          if (slugRef.current === requestedSlug) setInfo('Revision notes saved in My Mistakes.')
+        }).catch((e) => {
+          if (slugRef.current === requestedSlug) setInfo(`Tutor reply saved. Notes need a retry in My Mistakes: ${e.message}`)
+        }).finally(() => window.dispatchEvent(new window.Event('socratic-journal-updated')))
+      }
     } catch (e) {
       if (slugRef.current === requestedSlug) setError(e.message)
     } finally {
@@ -230,7 +240,7 @@ export default function ExtensionApp() {
         </>}
         <details className="privacy"><summary>Privacy & your saved notes</summary>
           <p>Only when you ask, the extension sends the problem, editor code, language and visible result to your backend. Trimmed context goes to the primary AI provider and, if enabled, its backup.</p>
-          <p>The revision journal saves plain-language explanations, never code snippets. The existing tutoring history separately keeps your latest two code versions per session to support comparison. Notes inferred from changes are labelled for review.</p>
+          <p>The revision journal saves plain-language explanations, never code snippets. Tutoring history keeps at most two code versions per session: the latest and an earlier unsolved version when available. A separate AI request may generate missing notes after acceptance or when you press Generate notes. Inferred explanations are labelled for review.</p>
           <p>No cookies or LeetCode account details are collected. Keep a database backup; local history is not automatically synced across devices.</p>
           <button onClick={deleteAll}>Delete all my stored history</button>
         </details>
